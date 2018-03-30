@@ -45,49 +45,44 @@ namespace kd
     };
 }
 
-namespace kd { namespace detail
+namespace kd
 {
     /************************************************************************
      * scalar_accessor
      ***********************************************************************/
 
-    template<typename T>
-    struct scalar_accessor<scalar<G, T>>
-    {
-        using type       = scalar<G, T>;
-        using value_type = T;
-        static constexpr const size_t channel = 1;
-        static constexpr inline auto & gray (type       & s) { return s.g; }
-        static constexpr inline auto & gray (type const & s) { return s.g; }
-    };
+    template<typename T> inline constexpr auto &
+    gray (scalar<G, T>       & s) { return s.g; }
+    template<typename T> inline constexpr auto &
+    gray (scalar<G, T> const & s) { return s.g; }
 
-    template<typename T>
-    struct scalar_accessor<scalar<RGB, T>>
-    {
-        using type       = scalar<RGB, T>;
-        using value_type = T;
-        static constexpr const size_t channel = 3;
-        static constexpr inline auto & red  (type       & s) { return s.r; }
-        static constexpr inline auto & red  (type const & s) { return s.r; }
-        static constexpr inline auto & green(type       & s) { return s.g; }
-        static constexpr inline auto & green(type const & s) { return s.g; }
-        static constexpr inline auto & blue (type       & s) { return s.b; }
-        static constexpr inline auto & blue (type const & s) { return s.b; }
-    };
+    template<typename T> inline constexpr auto &
+    red  (scalar<RGB, T>       & s) { return s.r; }
+    template<typename T> inline constexpr auto &
+    red  (scalar<RGB, T> const & s) { return s.r; }
+    template<typename T> inline constexpr auto &
+    green(scalar<RGB, T>       & s) { return s.g; }
+    template<typename T> inline constexpr auto &
+    green(scalar<RGB, T> const & s) { return s.g; }
+    template<typename T> inline constexpr auto &
+    blue (scalar<RGB, T>       & s) { return s.b; }
+    template<typename T> inline constexpr auto &
+    blue (scalar<RGB, T> const & s) { return s.b; }
 
-    template<typename T>
-    struct scalar_accessor<scalar<RGBA, T>>
-    {
-        using type       = scalar<RGBA, T>;
-        using value_type = T;
-        static constexpr const size_t channel = 4;
-        static constexpr inline auto & red  (type       & s) { return s.r; }
-        static constexpr inline auto & red  (type const & s) { return s.r; }
-        static constexpr inline auto & green(type       & s) { return s.g; }
-        static constexpr inline auto & green(type const & s) { return s.g; }
-        static constexpr inline auto & blue (type       & s) { return s.b; }
-        static constexpr inline auto & blue (type const & s) { return s.b; }
-        static constexpr inline auto & alpha(type       & s) { return s.a; }
-        static constexpr inline auto & alpha(type const & s) { return s.a; }
-    };
-}}
+    template<typename T> inline constexpr auto &
+    red  (scalar<RGBA, T>       & s) { return s.r; }
+    template<typename T> inline constexpr auto &
+    red  (scalar<RGBA, T> const & s) { return s.r; }
+    template<typename T> inline constexpr auto &
+    green(scalar<RGBA, T>       & s) { return s.g; }
+    template<typename T> inline constexpr auto &
+    green(scalar<RGBA, T> const & s) { return s.g; }
+    template<typename T> inline constexpr auto &
+    blue (scalar<RGBA, T>       & s) { return s.b; }
+    template<typename T> inline constexpr auto &
+    blue (scalar<RGBA, T> const & s) { return s.b; }
+    template<typename T> inline constexpr auto &
+    alpha(scalar<RGBA, T>       & s) { return s.a; }
+    template<typename T> inline constexpr auto &
+    alpha(scalar<RGBA, T> const & s) { return s.a; }
+}

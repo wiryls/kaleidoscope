@@ -4,28 +4,70 @@
 #include <utility>
 #include <type_traits>
 
+namespace kd
+{
+    /************************************************************************
+     * interface
+     ***********************************************************************/
+
+    /* size_t width(T const &) */
+
+    template<typename T, size_t W, size_t H> inline constexpr auto
+    width(T const (&)[H][W]) -> size_t { return W; }
+    
+    template<typename T> inline auto
+    width(T const & m) -> decltype(m.width()) { return m.width(); }
+
+    /* size_t height(T const &) */
+
+    template<typename T, size_t W, size_t H> inline constexpr auto
+    height(T const (&)[H][W]) -> size_t { return H; }
+    
+    template<typename T> inline auto
+    height(T const & m) -> decltype(m.height()) { return m.height(); }
+
+    /* value_type at(T const &, size_t, size_t) */
+
+    template<typename T, size_t W, size_t H> inline constexpr auto
+    at(T const (& m)[H][W], size_t x, size_t y) -> T const &
+    { return m[y][x]; }
+    
+    template<typename T, size_t W, size_t H> inline constexpr auto
+    at(T       (& m)[H][W], size_t x, size_t y) -> T       &
+    { return m[y][x]; }
+
+    /* value_type at(T const &, size_t, size_t) */
+
+    template<typename T> inline auto
+    at(T const & m, size_t x, size_t y) -> decltype(m.at(x, y))
+    { return m.at(x, y); }
+    
+    template<typename T> inline auto
+    at(T       & m, size_t x, size_t y) -> decltype(m.at(x, y))
+    { return m.at(x, y); }
+
+    /* References:
+    [Argument-dependent lookup]
+    (http://en.cppreference.com/w/cpp/language/adl)
+    */
+}
+
 namespace kd { namespace detail
 {
     /************************************************************************
-     * detail :: helper
+     * matrix_trait_base
      ***********************************************************************/
 
-    template<typename T>
-    using at_retval_t = decltype(std::declval<T>().at(size_t(), size_t()));
-
-    /************************************************************************
-     * detail :: readable & writable
-     ***********************************************************************/
+    /* readable base */
 
     template<typename T>
     struct readable_matrix_trait_base
     {
-        using readable = T;
+        using readable = std::remove_reference_t<T>;
         static constexpr bool is_readable = true;
-
-        static inline auto & at(T const & m, size_t x, size_t y)
-        { return m.at(x, y); }
     };
+
+    /* writable base */
 
     template<typename, typename = void>
     struct writable_matrix_trait_base
@@ -35,131 +77,43 @@ namespace kd { namespace detail
 
     template<typename T>
     struct writable_matrix_trait_base<T, std::enable_if_t<(
-        !std::is_const                        <at_retval_t<T>> ::value &&
-        !std::is_const<std::remove_reference_t<at_retval_t<T>>>::value
-    )>> {
-        using writable = T;
-        static constexpr bool is_writable = true;
-
-        static inline auto & at(T & m, size_t x, size_t y)
-        { return m.at(x, y); }
-    };
-
-    template<typename T, size_t H, size_t W>
-    struct readable_matrix_trait_sarray_base
-    {
-        using readable = T[H][W];
-        static constexpr bool is_readable = true;
-
-        static inline auto & at(T const (& m)[H][W], size_t x, size_t y)
-        { return m[y][x]; }
-    };
-
-    template<typename, size_t, size_t, typename = void>
-    struct writable_matrix_trait_sarray_base
-    {
-        static constexpr bool is_writable = false;
-    };
-
-    template<typename T, size_t H, size_t W>
-    struct writable_matrix_trait_sarray_base<T, H, W, std::enable_if_t<(
         !std::is_const                        <T> ::value &&
         !std::is_const<std::remove_reference_t<T>>::value
     )>> {
-        using writable = T[H][W];
+        using writable = std::remove_reference_t<T>;
         static constexpr bool is_writable = true;
-
-        static inline auto & at(T (& m)[H][W], size_t x, size_t y)
-        { return m[y][x]; }
     };
 
-    template<typename, typename, typename, typename = void>
-    struct accessible_matrix_trait_base {};
+    /* base */
 
-    template<typename T, typename R, typename W>
-    struct accessible_matrix_trait_base<T, R, W, std::enable_if_t<
-        R::is_readable == true &&
-        W::is_writable == true
-    >>: R, W
-    {
-        using R::at;
-        using W::at;
-    };
-
-    template<typename T, typename R, typename W>
-    struct accessible_matrix_trait_base<T, R, W, std::enable_if_t<
-        R::is_readable == true &&
-        W::is_writable == false
-    >>: R, W
-    {
-        using R::at;
-    };
-
-    template<typename T, typename R, typename W>
-    struct accessible_matrix_trait_base<T, R, W, std::enable_if_t<
-        R::is_readable == false &&
-        W::is_writable == true
-    >>: R, W
-    {
-        using W::at;
-    };
-
-    /************************************************************************
-     * detail :: width & height
-     ***********************************************************************/
-
-    template<typename, typename = void>
+    template<typename T, typename = void>
     struct matrix_trait_base {};
 
     template<typename T>
-    struct matrix_trait_base<T, std::void_t<decltype(
-        std::declval<T const>(). width() == size_t(),
-        std::declval<T const>().height() == size_t(),
-        std::declval<T const>().at(size_t(),size_t())
-    )>>:accessible_matrix_trait_base<
-        T,
-        readable_matrix_trait_base<T>,
-        writable_matrix_trait_base<T>
-    > {
+    struct matrix_trait_base<T, decltype(
+        height(std::declval<T>()),
+         width(std::declval<T>()),
+            at(std::declval<T>(), size_t(), size_t()),
+        void()
+    )>  : readable_matrix_trait_base<T>
+        , writable_matrix_trait_base<T>
+    {
         using type = T;
         using value_type = std::remove_cv_t<std::remove_reference_t<
             /* Note: `std::decay_t` will change `T[N]` to `T*`. */
-            at_retval_t<T>
+            decltype(at(std::declval<T>(), size_t(), size_t()))
         >>;
-
-        static inline auto  width(T const & m) { return m. width(); }
-        static inline auto height(T const & m) { return m.height(); }
-    };
-
-    template<typename T, size_t H, size_t W, typename = void>
-    struct matrix_trait_sarray_base : accessible_matrix_trait_base<
-        T[H][W],
-        readable_matrix_trait_sarray_base<T, H, W>,
-        writable_matrix_trait_sarray_base<T, H, W>
-    > {
-        using value_type = T;
-        using type = value_type[H][W];
-
-        static inline auto  width(T const (&)[H][W]) { return W; }
-        static inline auto height(T const (&)[H][W]) { return H; }
     };
 }}
 
 namespace kd
 {
     /************************************************************************
-     * matrix_trait
+     * matrix_trait && export
      ***********************************************************************/
 
     template<typename T>
-    struct matrix_trait
-        : detail::matrix_trait_base<T>
-    {};
-
-    template<typename T, size_t W, size_t H>
-    struct matrix_trait<T[H][W]>
-        : detail::matrix_trait_sarray_base<T, H, W>
-    {};
+    struct matrix_trait : detail::matrix_trait_base<T> {};
 
     template<typename T>
     using matrix_trait_t = typename matrix_trait<T>::type;

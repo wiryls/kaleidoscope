@@ -20,20 +20,19 @@ namespace kd
     save(T & os, U const & mat) ->
     decltype(scalar_trait_vt<matrix_trait_rvt<U>>(), bool())
     {
-        using mt = matrix_trait<U>;
         using detail::binary::write;
 
         // size check
-        if (mt:: width(mat) > std::numeric_limits<uint16_t>::max() ||
-            mt::height(mat) > std::numeric_limits<uint16_t>::max() )
+        if ( width(mat) > std::numeric_limits<uint16_t>::max() ||
+            height(mat) > std::numeric_limits<uint16_t>::max() )
             return false;
 
         // size
         static constexpr uint32_t bmph_size = 14;
         static constexpr uint32_t dibh_size = 108;
         static constexpr uint32_t head_size = bmph_size + dibh_size;
-        auto w = static_cast<uint32_t>(mt:: width(mat));
-        auto h = static_cast<uint32_t>(mt::height(mat));
+        auto w = static_cast<uint32_t>( width(mat));
+        auto h = static_cast<uint32_t>(height(mat));
         auto bimg_size = w * h * uint32_t(sizeof(uint32_t));
         auto size = head_size + bimg_size;
 
@@ -80,17 +79,16 @@ namespace kd
         // write Pixels (starts with the lower left hand corner)
         for (size_t y = h - 1; y < h; --y) {
             for (size_t x = 0; x < w; ++x) {
-                using u08x4_t = uint8_t[4];
-                using st = scalar_trait<u08x4_t>;
+                using u08x4_type = uint8_t[4];
                 using detail::scalar_convert;
                 
-                u08x4_t u8x4;
-                scalar_convert(mt::at(mat, x, y), u8x4);
+                u08x4_type u8x4;
+                scalar_convert(at(mat, x, y), u8x4);
                 uint32_t u32
-                    = st::red  (u8x4) << 8 * 2
-                    | st::green(u8x4) << 8 * 1
-                    | st::blue (u8x4) << 8 * 0
-                    | st::alpha(u8x4) << 8 * 3
+                    = red  (u8x4) << 8 * 2
+                    | green(u8x4) << 8 * 1
+                    | blue (u8x4) << 8 * 0
+                    | alpha(u8x4) << 8 * 3
                     ;
                 cur = write<uint32_t>(cur, u32);
             }
@@ -122,5 +120,4 @@ namespace kd
     
         return save(ofs, std::forward<T>(mat));
     }
-
 }

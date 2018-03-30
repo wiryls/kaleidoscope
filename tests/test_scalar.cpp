@@ -4,11 +4,32 @@
 #include <kdenticon/internal/scalar_trait.hpp>
 #include <kdenticon/internal/scalar.hpp>
 
-template<typename T> using lim = std::numeric_limits<T>;
+TEST_CASE("scalar method", "[scalar_trait]")
+{
+    using namespace kd;
+
+      SECTION("int") {
+        using type = int;
+        type value = {};
+        gray(value) = 1;
+        REQUIRE(gray(value) == 1);
+    } SECTION("int [1]") {
+        using type = detail::size_specified_static_array_t<int[1], 1>;
+        type value = {};
+        gray(value) = 1;
+        REQUIRE(gray(value) == 1);
+    } SECTION("int [3]") {
+        using type = detail::size_specified_static_array_t<int[3], 3>;
+        type value = {};
+        red(value) = 1;
+        REQUIRE(red(value) == 1);
+    }
+}
 
 TEST_CASE("*_scalar_trait", "[scalar_trait]")
 {
     using namespace kd;
+
     SECTION("channel") {
         REQUIRE(gray_scalar_trait< uint8_t[1]>::channel == 1U);
         REQUIRE( rgb_scalar_trait< uint8_t[3]>::channel == 3U);
@@ -88,39 +109,45 @@ TEST_CASE("*_scalar_trait", "[scalar_trait]")
         REQUIRE( rgb_scalar_trait<std::array<double  , 3>>::channel == 3U);
         REQUIRE(rgba_scalar_trait<std::array<double  , 4>>::channel == 4U);
     } SECTION("gray_scalar_trait<float>") {
-        using type = float;
+        using type = float[1];
         using trait = gray_scalar_trait<type>;
-        type s = 1.f;
-        REQUIRE( trait::gray(s)        == 1.f);
-        REQUIRE((trait::gray(s) = 2.f) == 2.f);
+        type s = { 1.f };
+        REQUIRE( gray(s)        == 1.f);
+        REQUIRE((gray(s) = 2.f) == 2.f);
     } SECTION("rgb_scalar_trait<scalar<RGB, float>>") {
         using type = scalar<RGB, int>;
         using trait = rgb_scalar_trait<type>;
         type s = {0x12345678, 0x23456789, 0x34567890};
-        REQUIRE(trait::  red(s) == 0x12345678);
-        REQUIRE(trait::green(s) == 0x23456789);
-        REQUIRE(trait:: blue(s) == 0x34567890);
-        REQUIRE((trait::  red(s) = 0x01020304) == 0x01020304);
-        REQUIRE((trait::green(s) = 0x02030405) == 0x02030405);
-        REQUIRE((trait:: blue(s) = 0x03040506) == 0x03040506);
+        REQUIRE(  red(s) == 0x12345678);
+        REQUIRE(green(s) == 0x23456789);
+        REQUIRE( blue(s) == 0x34567890);
+        REQUIRE((  red(s) = 0x01020304) == 0x01020304);
+        REQUIRE((green(s) = 0x02030405) == 0x02030405);
+        REQUIRE(( blue(s) = 0x03040506) == 0x03040506);
     } SECTION("rgba_scalar_trait<uint64_t[4]>") {
         using type = uint64_t[4];
         using trait = rgba_scalar_trait<type>;
         type s = {1, 2, 3, 4};
-        REQUIRE(trait::  red(s) == 1ULL);
-        REQUIRE(trait::green(s) == 2ULL);
-        REQUIRE(trait:: blue(s) == 3ULL);
-        REQUIRE(trait::alpha(s) == 4ULL);
-        REQUIRE((trait::  red(s) = 4ULL) == 4ULL);
-        REQUIRE((trait::green(s) = 3ULL) == 3ULL);
-        REQUIRE((trait:: blue(s) = 2ULL) == 2ULL);
-        REQUIRE((trait::alpha(s) = 1ULL) == 1ULL);
+        REQUIRE(  red(s) == 1ULL);
+        REQUIRE(green(s) == 2ULL);
+        REQUIRE( blue(s) == 3ULL);
+        REQUIRE(alpha(s) == 4ULL);
+        REQUIRE((  red(s) = 4ULL) == 4ULL);
+        REQUIRE((green(s) = 3ULL) == 3ULL);
+        REQUIRE(( blue(s) = 2ULL) == 2ULL);
+        REQUIRE((alpha(s) = 1ULL) == 1ULL);
     }
+}
+
+namespace test
+{
+    template<typename T> using lim = std::numeric_limits<T>;
 }
 
 TEST_CASE("scalar_convert<gray, ...>(...)", "[scalar_trait]")
 {
     using namespace kd;
+    using namespace test;
     using detail::scalar_convert;
 
     uint64_t u64 = 0;

@@ -3,6 +3,7 @@
 #include <memory>
 #include <vector>
 #include <array>
+#include <utility>
 #include <tuple>
 #include <functional>
 #include <cassert>
@@ -43,9 +44,7 @@ float sample(float x, float y, int w, int h) {
 
 TEST_CASE()
 {
-    //kd::scalar_trait<float const[3]>;
-
-    kd::matrix<kd::scalar<kd::RGBA, float>> mat(1024, 1024);
+    kd::matrix<kd::scalar<kd::RGBA, float>> mat(256, 256);
     auto w = mat. width();
     auto h = mat.height();
     for (int y = 0; y < h; y++) {
