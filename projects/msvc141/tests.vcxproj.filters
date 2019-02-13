@@ -13,10 +13,16 @@
     <ClCompile Include="..\..\tests\test_scalar.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\tests\test_foo.cpp">
+    <ClCompile Include="..\..\tests\test_main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\tests\test_main.cpp">
+    <ClCompile Include="..\..\tests\test_cast.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\tests\test_graphic.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\tests\test_233.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

@@ -14,12 +14,12 @@ TEST_CASE("scalar method", "[scalar_trait]")
         gray(value) = 1;
         REQUIRE(gray(value) == 1);
     } SECTION("int [1]") {
-        using type = detail::size_specified_static_array_t<int[1], 1>;
+        using type = detail::size_specified_array_t<int[1], 1>;
         type value = {};
         gray(value) = 1;
         REQUIRE(gray(value) == 1);
     } SECTION("int [3]") {
-        using type = detail::size_specified_static_array_t<int[3], 3>;
+        using type = detail::size_specified_array_t<int[3], 3>;
         type value = {};
         red(value) = 1;
         REQUIRE(red(value) == 1);
@@ -65,39 +65,39 @@ TEST_CASE("*_scalar_trait", "[scalar_trait]")
         REQUIRE( rgb_scalar_trait<    bool[3]>::channel == 3U);
         REQUIRE(rgba_scalar_trait<    bool[4]>::channel == 4U);
 
-        REQUIRE(gray_scalar_trait<scalar<   G,  uint8_t>>::channel == 1U);
-        REQUIRE( rgb_scalar_trait<scalar< RGB,  uint8_t>>::channel == 3U);
-        REQUIRE(rgba_scalar_trait<scalar<RGBA,  uint8_t>>::channel == 4U);
-        REQUIRE(gray_scalar_trait<scalar<   G, uint16_t>>::channel == 1U);
-        REQUIRE( rgb_scalar_trait<scalar< RGB, uint16_t>>::channel == 3U);
-        REQUIRE(rgba_scalar_trait<scalar<RGBA, uint16_t>>::channel == 4U);
-        REQUIRE(gray_scalar_trait<scalar<   G, uint32_t>>::channel == 1U);
-        REQUIRE( rgb_scalar_trait<scalar< RGB, uint32_t>>::channel == 3U);
-        REQUIRE(rgba_scalar_trait<scalar<RGBA, uint32_t>>::channel == 4U);
-        REQUIRE(gray_scalar_trait<scalar<   G, uint64_t>>::channel == 1U);
-        REQUIRE( rgb_scalar_trait<scalar< RGB, uint64_t>>::channel == 3U);
-        REQUIRE(rgba_scalar_trait<scalar<RGBA, uint64_t>>::channel == 4U);
-        REQUIRE(gray_scalar_trait<scalar<   G,   int8_t>>::channel == 1U);
-        REQUIRE( rgb_scalar_trait<scalar< RGB,   int8_t>>::channel == 3U);
-        REQUIRE(rgba_scalar_trait<scalar<RGBA,   int8_t>>::channel == 4U);
-        REQUIRE(gray_scalar_trait<scalar<   G,  int16_t>>::channel == 1U);
-        REQUIRE( rgb_scalar_trait<scalar< RGB,  int16_t>>::channel == 3U);
-        REQUIRE(rgba_scalar_trait<scalar<RGBA,  int16_t>>::channel == 4U);
-        REQUIRE(gray_scalar_trait<scalar<   G,  int32_t>>::channel == 1U);
-        REQUIRE( rgb_scalar_trait<scalar< RGB,  int32_t>>::channel == 3U);
-        REQUIRE(rgba_scalar_trait<scalar<RGBA,  int32_t>>::channel == 4U);
-        REQUIRE(gray_scalar_trait<scalar<   G,  int64_t>>::channel == 1U);
-        REQUIRE( rgb_scalar_trait<scalar< RGB,  int64_t>>::channel == 3U);
-        REQUIRE(rgba_scalar_trait<scalar<RGBA,  int64_t>>::channel == 4U);
-        REQUIRE(gray_scalar_trait<scalar<   G,    float>>::channel == 1U);
-        REQUIRE( rgb_scalar_trait<scalar< RGB,    float>>::channel == 3U);
-        REQUIRE(rgba_scalar_trait<scalar<RGBA,    float>>::channel == 4U);
-        REQUIRE(gray_scalar_trait<scalar<   G,   double>>::channel == 1U);
-        REQUIRE( rgb_scalar_trait<scalar< RGB,   double>>::channel == 3U);
-        REQUIRE(rgba_scalar_trait<scalar<RGBA,   double>>::channel == 4U);
-        REQUIRE(gray_scalar_trait<scalar<   G,     bool>>::channel == 1U);
-        REQUIRE( rgb_scalar_trait<scalar< RGB,     bool>>::channel == 3U);
-        REQUIRE(rgba_scalar_trait<scalar<RGBA,     bool>>::channel == 4U);
+        REQUIRE(gray_scalar_trait<scalar< uint8_t,    G>>::channel == 1U);
+        REQUIRE( rgb_scalar_trait<scalar< uint8_t,  RGB>>::channel == 3U);
+        REQUIRE(rgba_scalar_trait<scalar< uint8_t, RGBA>>::channel == 4U);
+        REQUIRE(gray_scalar_trait<scalar<uint16_t,    G>>::channel == 1U);
+        REQUIRE( rgb_scalar_trait<scalar<uint16_t,  RGB>>::channel == 3U);
+        REQUIRE(rgba_scalar_trait<scalar<uint16_t, RGBA>>::channel == 4U);
+        REQUIRE(gray_scalar_trait<scalar<uint32_t,    G>>::channel == 1U);
+        REQUIRE( rgb_scalar_trait<scalar<uint32_t,  RGB>>::channel == 3U);
+        REQUIRE(rgba_scalar_trait<scalar<uint32_t, RGBA>>::channel == 4U);
+        REQUIRE(gray_scalar_trait<scalar<uint64_t,    G>>::channel == 1U);
+        REQUIRE( rgb_scalar_trait<scalar<uint64_t,  RGB>>::channel == 3U);
+        REQUIRE(rgba_scalar_trait<scalar<uint64_t, RGBA>>::channel == 4U);
+        REQUIRE(gray_scalar_trait<scalar<  int8_t,    G>>::channel == 1U);
+        REQUIRE( rgb_scalar_trait<scalar<  int8_t,  RGB>>::channel == 3U);
+        REQUIRE(rgba_scalar_trait<scalar<  int8_t, RGBA>>::channel == 4U);
+        REQUIRE(gray_scalar_trait<scalar< int16_t,    G>>::channel == 1U);
+        REQUIRE( rgb_scalar_trait<scalar< int16_t,  RGB>>::channel == 3U);
+        REQUIRE(rgba_scalar_trait<scalar< int16_t, RGBA>>::channel == 4U);
+        REQUIRE(gray_scalar_trait<scalar< int32_t,    G>>::channel == 1U);
+        REQUIRE( rgb_scalar_trait<scalar< int32_t,  RGB>>::channel == 3U);
+        REQUIRE(rgba_scalar_trait<scalar< int32_t, RGBA>>::channel == 4U);
+        REQUIRE(gray_scalar_trait<scalar< int64_t,    G>>::channel == 1U);
+        REQUIRE( rgb_scalar_trait<scalar< int64_t,  RGB>>::channel == 3U);
+        REQUIRE(rgba_scalar_trait<scalar< int64_t, RGBA>>::channel == 4U);
+        REQUIRE(gray_scalar_trait<scalar<   float,    G>>::channel == 1U);
+        REQUIRE( rgb_scalar_trait<scalar<   float,  RGB>>::channel == 3U);
+        REQUIRE(rgba_scalar_trait<scalar<   float, RGBA>>::channel == 4U);
+        REQUIRE(gray_scalar_trait<scalar<  double,    G>>::channel == 1U);
+        REQUIRE( rgb_scalar_trait<scalar<  double,  RGB>>::channel == 3U);
+        REQUIRE(rgba_scalar_trait<scalar<  double, RGBA>>::channel == 4U);
+        REQUIRE(gray_scalar_trait<scalar<    bool,    G>>::channel == 1U);
+        REQUIRE( rgb_scalar_trait<scalar<    bool,  RGB>>::channel == 3U);
+        REQUIRE(rgba_scalar_trait<scalar<    bool, RGBA>>::channel == 4U);
 
         REQUIRE(gray_scalar_trait<std::array<bool    , 1>>::channel == 1U);
         REQUIRE( rgb_scalar_trait<std::array<bool    , 3>>::channel == 3U);
@@ -115,7 +115,7 @@ TEST_CASE("*_scalar_trait", "[scalar_trait]")
         REQUIRE( gray(s)        == 1.f);
         REQUIRE((gray(s) = 2.f) == 2.f);
     } SECTION("rgb_scalar_trait<scalar<RGB, float>>") {
-        using type = scalar<RGB, int>;
+        using type = scalar<int, RGB>;
         using trait = rgb_scalar_trait<type>;
         type s = {0x12345678, 0x23456789, 0x34567890};
         REQUIRE(  red(s) == 0x12345678);
@@ -144,11 +144,11 @@ namespace test
     template<typename T> using lim = std::numeric_limits<T>;
 }
 
-TEST_CASE("scalar_convert<gray, ...>(...)", "[scalar_trait]")
+TEST_CASE("scalar_assign<gray, ...>(...)", "[scalar_trait]")
 {
     using namespace kd;
     using namespace test;
-    using detail::scalar_convert;
+    using detail::scalar_assign;
 
     uint64_t u64 = 0;
     uint32_t u32 = 0;
@@ -167,60 +167,60 @@ TEST_CASE("scalar_convert<gray, ...>(...)", "[scalar_trait]")
 
     SECTION("int") {
         auto v = -1;
-        REQUIRE((scalar_convert(v, u64), u64) == 0);
-        REQUIRE((scalar_convert(v, u32), u32) == 0);
-        REQUIRE((scalar_convert(v, u16), u16) == 0);
-        REQUIRE((scalar_convert(v, u08), u08) == 0);
-        REQUIRE((scalar_convert(v, i64), i64) == 0);
-        REQUIRE((scalar_convert(v, i32), i32) == 0);
-        REQUIRE((scalar_convert(v, i16), i16) == 0);
-        REQUIRE((scalar_convert(v, i08), i08) == 0);
-        REQUIRE((scalar_convert(v, f64), f64) == 0);
-        REQUIRE((scalar_convert(v, f32), f32) == 0);
-        REQUIRE((scalar_convert(v, c08), c08) == 0);
-        REQUIRE((scalar_convert(v, b01), b01) == false);
+        REQUIRE((scalar_assign(u64, v), u64) == 0);
+        REQUIRE((scalar_assign(u32, v), u32) == 0);
+        REQUIRE((scalar_assign(u16, v), u16) == 0);
+        REQUIRE((scalar_assign(u08, v), u08) == 0);
+        REQUIRE((scalar_assign(i64, v), i64) == 0);
+        REQUIRE((scalar_assign(i32, v), i32) == 0);
+        REQUIRE((scalar_assign(i16, v), i16) == 0);
+        REQUIRE((scalar_assign(i08, v), i08) == 0);
+        REQUIRE((scalar_assign(f64, v), f64) == 0);
+        REQUIRE((scalar_assign(f32, v), f32) == 0);
+        REQUIRE((scalar_assign(c08, v), c08) == 0);
+        REQUIRE((scalar_assign(b01, v), b01) == false);
     } SECTION("float") {
         auto v = 1.f;
-        REQUIRE((scalar_convert(v, u64), u64) == lim<decltype(u64)>::max());
-        REQUIRE((scalar_convert(v, u32), u32) == lim<decltype(u32)>::max());
-        REQUIRE((scalar_convert(v, u16), u16) == lim<decltype(u16)>::max());
-        REQUIRE((scalar_convert(v, u08), u08) == lim<decltype(u08)>::max());
-        REQUIRE((scalar_convert(v, i64), i64) == lim<decltype(i64)>::max());
-        REQUIRE((scalar_convert(v, i32), i32) == lim<decltype(i32)>::max());
-        REQUIRE((scalar_convert(v, i16), i16) == lim<decltype(i16)>::max());
-        REQUIRE((scalar_convert(v, i08), i08) == lim<decltype(i08)>::max());
-        REQUIRE((scalar_convert(v, f64), f64) == 1.0);
-        REQUIRE((scalar_convert(v, f32), f32) == 1.f);
-        REQUIRE((scalar_convert(v, c08), c08) == lim<decltype(c08)>::max());
-        REQUIRE((scalar_convert(v, b01), b01) == lim<decltype(b01)>::max());
+        REQUIRE((scalar_assign(u64, v), u64) == lim<decltype(u64)>::max());
+        REQUIRE((scalar_assign(u32, v), u32) == lim<decltype(u32)>::max());
+        REQUIRE((scalar_assign(u16, v), u16) == lim<decltype(u16)>::max());
+        REQUIRE((scalar_assign(u08, v), u08) == lim<decltype(u08)>::max());
+        REQUIRE((scalar_assign(i64, v), i64) == lim<decltype(i64)>::max());
+        REQUIRE((scalar_assign(i32, v), i32) == lim<decltype(i32)>::max());
+        REQUIRE((scalar_assign(i16, v), i16) == lim<decltype(i16)>::max());
+        REQUIRE((scalar_assign(i08, v), i08) == lim<decltype(i08)>::max());
+        REQUIRE((scalar_assign(f64, v), f64) == 1.0);
+        REQUIRE((scalar_assign(f32, v), f32) == 1.f);
+        REQUIRE((scalar_assign(c08, v), c08) == lim<decltype(c08)>::max());
+        REQUIRE((scalar_assign(b01, v), b01) == lim<decltype(b01)>::max());
     } SECTION("double") {
         auto v = 1.1;
-        REQUIRE((scalar_convert(v, u64), u64) == lim<decltype(u64)>::max());
-        REQUIRE((scalar_convert(v, u32), u32) == lim<decltype(u32)>::max());
-        REQUIRE((scalar_convert(v, u16), u16) == lim<decltype(u16)>::max());
-        REQUIRE((scalar_convert(v, u08), u08) == lim<decltype(u08)>::max());
-        REQUIRE((scalar_convert(v, i64), i64) == lim<decltype(i64)>::max());
-        REQUIRE((scalar_convert(v, i32), i32) == lim<decltype(i32)>::max());
-        REQUIRE((scalar_convert(v, i16), i16) == lim<decltype(i16)>::max());
-        REQUIRE((scalar_convert(v, i08), i08) == lim<decltype(i08)>::max());
-        REQUIRE((scalar_convert(v, f64), f64) == 1.0);
-        REQUIRE((scalar_convert(v, f32), f32) == 1.f);
-        REQUIRE((scalar_convert(v, c08), c08) == lim<decltype(c08)>::max());
-        REQUIRE((scalar_convert(v, b01), b01) == lim<decltype(b01)>::max());
+        REQUIRE((scalar_assign(u64, v), u64) == lim<decltype(u64)>::max());
+        REQUIRE((scalar_assign(u32, v), u32) == lim<decltype(u32)>::max());
+        REQUIRE((scalar_assign(u16, v), u16) == lim<decltype(u16)>::max());
+        REQUIRE((scalar_assign(u08, v), u08) == lim<decltype(u08)>::max());
+        REQUIRE((scalar_assign(i64, v), i64) == lim<decltype(i64)>::max());
+        REQUIRE((scalar_assign(i32, v), i32) == lim<decltype(i32)>::max());
+        REQUIRE((scalar_assign(i16, v), i16) == lim<decltype(i16)>::max());
+        REQUIRE((scalar_assign(i08, v), i08) == lim<decltype(i08)>::max());
+        REQUIRE((scalar_assign(f64, v), f64) == 1.0);
+        REQUIRE((scalar_assign(f32, v), f32) == 1.f);
+        REQUIRE((scalar_assign(c08, v), c08) == lim<decltype(c08)>::max());
+        REQUIRE((scalar_assign(b01, v), b01) == lim<decltype(b01)>::max());
     } SECTION("uint64_t") {
         auto v = lim<uint64_t>::max();
-        REQUIRE((scalar_convert(v, u64), u64) == lim<decltype(u64)>::max());
-        REQUIRE((scalar_convert(v, u32), u32) == lim<decltype(u32)>::max());
-        REQUIRE((scalar_convert(v, u16), u16) == lim<decltype(u16)>::max());
-        REQUIRE((scalar_convert(v, u08), u08) == lim<decltype(u08)>::max());
-        REQUIRE((scalar_convert(v, i64), i64) == lim<decltype(i64)>::max());
-        REQUIRE((scalar_convert(v, i32), i32) == lim<decltype(i32)>::max());
-        REQUIRE((scalar_convert(v, i16), i16) == lim<decltype(i16)>::max());
-        REQUIRE((scalar_convert(v, i08), i08) == lim<decltype(i08)>::max());
-        REQUIRE((scalar_convert(v, f64), f64) == 1.0);
-        REQUIRE((scalar_convert(v, f32), f32) == 1.f);
-        REQUIRE((scalar_convert(v, c08), c08) == lim<decltype(c08)>::max());
-        REQUIRE((scalar_convert(v, b01), b01) == lim<decltype(b01)>::max());
+        REQUIRE((scalar_assign(u64, v), u64) == lim<decltype(u64)>::max());
+        REQUIRE((scalar_assign(u32, v), u32) == lim<decltype(u32)>::max());
+        REQUIRE((scalar_assign(u16, v), u16) == lim<decltype(u16)>::max());
+        REQUIRE((scalar_assign(u08, v), u08) == lim<decltype(u08)>::max());
+        REQUIRE((scalar_assign(i64, v), i64) == lim<decltype(i64)>::max());
+        REQUIRE((scalar_assign(i32, v), i32) == lim<decltype(i32)>::max());
+        REQUIRE((scalar_assign(i16, v), i16) == lim<decltype(i16)>::max());
+        REQUIRE((scalar_assign(i08, v), i08) == lim<decltype(i08)>::max());
+        REQUIRE((scalar_assign(f64, v), f64) == 1.0);
+        REQUIRE((scalar_assign(f32, v), f32) == 1.f);
+        REQUIRE((scalar_assign(c08, v), c08) == lim<decltype(c08)>::max());
+        REQUIRE((scalar_assign(b01, v), b01) == lim<decltype(b01)>::max());
     }
 
 }

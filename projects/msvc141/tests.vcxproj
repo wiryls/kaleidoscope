@@ -19,7 +19,9 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\tests\test_foo.cpp" />
+    <ClCompile Include="..\..\tests\test_cast.cpp" />
+    <ClCompile Include="..\..\tests\test_233.cpp" />
+    <ClCompile Include="..\..\tests\test_graphic.cpp" />
     <ClCompile Include="..\..\tests\test_main.cpp" />
     <ClCompile Include="..\..\tests\test_martix.cpp" />
     <ClCompile Include="..\..\tests\test_scalar.cpp" />
@@ -29,7 +31,7 @@
     <ProjectGuid>{5DFCA941-75EA-441D-81BC-DDEA9F91135E}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>tests</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.16299.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">

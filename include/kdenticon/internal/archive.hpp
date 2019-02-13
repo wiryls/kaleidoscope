@@ -18,9 +18,10 @@ namespace kd
 
     template<typename T, typename U> inline auto
     save(T & os, U const & mat) ->
-    decltype(scalar_trait_vt<matrix_trait_rvt<U>>(), bool())
+    decltype(scalar_trait_vt<matrix_trait_rvt<U>>{}, bool())
     {
         using detail::binary::write;
+        using detail::scalar_assign;
 
         // size check
         if ( width(mat) > std::numeric_limits<uint16_t>::max() ||
@@ -79,18 +80,15 @@ namespace kd
         // write Pixels (starts with the lower left hand corner)
         for (size_t y = h - 1; y < h; --y) {
             for (size_t x = 0; x < w; ++x) {
-                using u08x4_type = uint8_t[4];
-                using detail::scalar_convert;
-                
-                u08x4_type u8x4;
-                scalar_convert(at(mat, x, y), u8x4);
+                uint8_t u8x4[4];
+                scalar_assign(u8x4, at(mat, x, y));
                 uint32_t u32
                     = red  (u8x4) << 8 * 2
                     | green(u8x4) << 8 * 1
                     | blue (u8x4) << 8 * 0
                     | alpha(u8x4) << 8 * 3
                     ;
-                cur = write<uint32_t>(cur, u32);
+                cur = write(cur, u32);
             }
         }
 
@@ -112,12 +110,12 @@ namespace kd
 
     template<typename T> inline auto
     save(const char * path, T && mat) ->
-    decltype(scalar_trait_vt<matrix_trait_rvt<T>>(), bool())
+    decltype(scalar_trait_vt<matrix_trait_rvt<T>>{}, bool())
     {
         std::ofstream ofs(path, std::ios::binary);
-        if (!ofs.is_open())
-            return false;
-    
-        return save(ofs, std::forward<T>(mat));
+        return(ofs.is_open())
+            ? (save(ofs, std::forward<T>(mat)))
+            : (false)
+            ;
     }
 }

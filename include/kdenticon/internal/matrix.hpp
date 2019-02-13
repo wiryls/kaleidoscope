@@ -210,7 +210,7 @@ namespace kd
     {
         for (size_t y = 0; y < wid; ++y)
             for (size_t x = 0; x < hgt; ++x)
-                (*this).at(x, y) = kd::matrix_trait_vt<U>::at(rhs, x, y);
+                (*this).at(x, y) = kd::at(rhs, x, y);
     }
 
     template<typename T> template<typename U, typename> inline
@@ -223,7 +223,7 @@ namespace kd
 
         for (size_t y = 0; y < wid; ++y)
             for (size_t x = 0; x < hgt; ++x)
-                (*this).at(x, y) = kd::matrix_trait_vt<U>::at(rhs, x, y);
+                (*this).at(x, y) = kd::at(rhs, x, y);
 
         return *this;
     }

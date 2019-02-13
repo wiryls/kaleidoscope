@@ -93,7 +93,7 @@ namespace kd { namespace detail
     struct matrix_trait_base<T, decltype(
         height(std::declval<T>()),
          width(std::declval<T>()),
-            at(std::declval<T>(), size_t(), size_t()),
+            at(std::declval<T>(), size_t{}, size_t{}),
         void()
     )>  : readable_matrix_trait_base<T>
         , writable_matrix_trait_base<T>
@@ -101,7 +101,7 @@ namespace kd { namespace detail
         using type = T;
         using value_type = std::remove_cv_t<std::remove_reference_t<
             /* Note: `std::decay_t` will change `T[N]` to `T*`. */
-            decltype(at(std::declval<T>(), size_t(), size_t()))
+            decltype(at(std::declval<T>(), size_t{}, size_t{}))
         >>;
     };
 }}

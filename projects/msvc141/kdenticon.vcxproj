@@ -21,6 +21,9 @@
   <ItemGroup>
     <ClInclude Include="..\..\include\kdenticon\internal\archive.hpp" />
     <ClInclude Include="..\..\include\kdenticon\internal\binary.hpp" />
+    <ClInclude Include="..\..\include\kdenticon\internal\cast.hpp" />
+    <ClInclude Include="..\..\include\kdenticon\internal\geometry.hpp" />
+    <ClInclude Include="..\..\include\kdenticon\internal\graphic.hpp" />
     <ClInclude Include="..\..\include\kdenticon\internal\matrix.hpp" />
     <ClInclude Include="..\..\include\kdenticon\internal\matrix_trait.hpp" />
     <ClInclude Include="..\..\include\kdenticon\internal\pattern.hpp" />
@@ -34,7 +37,7 @@
     <ProjectGuid>{466A6132-F054-484E-9FCE-6B992C8E703B}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>kdenticon</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.16299.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">

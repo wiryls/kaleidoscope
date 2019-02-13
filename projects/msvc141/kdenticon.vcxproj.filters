@@ -13,9 +13,6 @@
     <ClInclude Include="..\..\include\kdenticon\kdenticon.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\include\kdenticon\internal\scalar.hpp">
-      <Filter>Header Files\internal</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\include\kdenticon\internal\scalar_trait.hpp">
       <Filter>Header Files\internal</Filter>
     </ClInclude>
@@ -35,6 +32,18 @@
       <Filter>Header Files\internal</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\kdenticon\internal\binary.hpp">
+      <Filter>Header Files\internal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\kdenticon\internal\graphic.hpp">
+      <Filter>Header Files\internal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\kdenticon\internal\scalar.hpp">
+      <Filter>Header Files\internal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\kdenticon\internal\geometry.hpp">
+      <Filter>Header Files\internal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\kdenticon\internal\cast.hpp">
       <Filter>Header Files\internal</Filter>
     </ClInclude>
   </ItemGroup>
