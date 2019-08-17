@@ -117,13 +117,13 @@ namespace kd { namespace detail { namespace graphic
         return std::make_pair(d, s);
     }
 
-	/************************************************************************
-	 * common
-	 ***********************************************************************/
+    /************************************************************************
+     * common
+     ***********************************************************************/
 
-	template<typename T, typename U> inline void
-	bresenham(vec2<T> a, vec2<T> b, U f)
-	{
+    template<typename T, typename U> inline void
+    bresenham(vec2<T> a, vec2<T> b, U f)
+    {
         auto d = delta(a, b);
 
         auto swap = d.y > d.x;
@@ -136,7 +136,7 @@ namespace kd { namespace detail { namespace graphic
         if (a.x > b.x) {
             std::swap(a, b);
         }
-		
+        
         auto err = d.x >> 1;
         auto inc = a.y < b.y ? T(1) : T(-1);
 
@@ -161,7 +161,7 @@ namespace kd { namespace detail { namespace graphic
          * [Bitmap/Bresenham's line algorithm]
          * (https://rosettacode.org/wiki/Bitmap/Bresenham%27s_line_algorithm#C.2B.2B)
          */
-	}
+    }
 
     /************************************************************************
      * clipper
@@ -282,32 +282,32 @@ namespace kd { namespace detail { namespace graphic
 
     using rgba = real[4];
 
-	inline void alpha_blend(rgba const & src, rgba const & dst, rgba & out)
-	{
-		/* src over dst */
+    inline void alpha_blend(rgba const & src, rgba const & dst, rgba & out)
+    {
+        /* src over dst */
 
-		R(out) = R(src) * A(src) + R(dst) * A(dst) * (max - A(src));
-		G(out) = G(src) * A(src) + G(dst) * A(dst) * (max - A(src));
-		B(out) = B(src) * A(src) + B(dst) * A(dst) * (max - A(src));
-		A(out) = A(src) + A(dst) * (max - A(src));
+        R(out) = R(src) * A(src) + R(dst) * A(dst) * (max - A(src));
+        G(out) = G(src) * A(src) + G(dst) * A(dst) * (max - A(src));
+        B(out) = B(src) * A(src) + B(dst) * A(dst) * (max - A(src));
+        A(out) = A(src) + A(dst) * (max - A(src));
 
-		if (A(out) > min) {
-			R(out) /= A(out);
-			G(out) /= A(out);
-			B(out) /= A(out);
-		} else {
-			R(out) = min;
-			G(out) = min;
-			B(out) = min;
-			A(out) = min;
-		}
+        if (A(out) > min) {
+            R(out) /= A(out);
+            G(out) /= A(out);
+            B(out) /= A(out);
+        } else {
+            R(out) = min;
+            G(out) = min;
+            B(out) = min;
+            A(out) = min;
+        }
 
-		/* Reference:
+        /* Reference:
          *
-		 * [Alpha compositing]
-		 * (https://en.wikipedia.org/wiki/Alpha_compositing#Alpha_blending)
-		 */
-	}
+         * [Alpha compositing]
+         * (https://en.wikipedia.org/wiki/Alpha_compositing#Alpha_blending)
+         */
+    }
 
     inline real capsule_sdf
     ( vec2<real> const & p

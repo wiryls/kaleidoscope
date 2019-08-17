@@ -22,7 +22,7 @@
     <ClCompile Include="..\..\tests\test_graphic.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\tests\test_233.cpp">
+    <ClCompile Include="..\..\tests\test_foo.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

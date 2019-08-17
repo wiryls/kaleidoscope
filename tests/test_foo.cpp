@@ -11,48 +11,103 @@
 #include <catch/catch.hpp>
 #include <kdenticon/kdenticon.hpp>
 
+#include <kdenticon/internal/shape.hpp>
 #include <kdenticon/internal/scalar.hpp>
 #include <kdenticon/internal/matrix.hpp>
 #include <kdenticon/internal/archive.hpp>
-//#include "archive.hpp"
-//#include "pattern.hpp"
+#include <kdenticon/internal/graphic.hpp>
 
-// https://zhuanlan.zhihu.com/p/30553006
+// archive << pattern << shape << hash << text
 
-float capsule(float px, float py, float ax, float ay, float bx, float by, float r) {
-    float pax = px - ax, pay = py - ay, bax = bx - ax, bay = by - ay;
-    float h = fmaxf(fminf((pax * bax + pay * bay) / (bax * bax + bay * bay), 1.0f), 0.0f);
-    float dx = pax - bax * h, dy = pay - bay * h;
-    return sqrtf(dx * dx + dy * dy) - r;
+namespace test
+{
+    struct canvas {};
+    struct style  {};
+    struct shape
+    {
+        using type = style;
+    };
+
+    struct drawable  {};
+
+    canvas & operator << (canvas & c, drawable && p)
+    {
+        std::cout << "paint\n";
+        return c;
+    }
+
+    canvas & operator << (canvas & c, shape & s)
+    {
+        drawable p;
+        return c << std::move(p);
+    }
+
+    drawable && operator + (style & c, shape & s)
+    {
+        std::cout << "merge\n";
+        drawable p;
+        return std::move(p);
+    }
+
+    drawable && operator + (shape & s, style & c)
+    {
+        return c + s;
+    }
+
+    //template<typename T>
+    //drawable && operator + (T & s, style<T> & c)
+    //{
+    //    return c + s;
+    //}
+
+
+    // draw(matrix, shape, style<shape> = default()));
 }
 
-float sample(float x, float y, int w, int h) {
-    float s = 0.0f, cx = w * 0.5f, cy = h * 0.5f;
+TEST_CASE()
+{
+    //using namespace test;
+    //canvas ca;
+    //style st;
+    //shape sh;
+    //drawable pa;
+
+    //ca
+    //    << sh + st
+    //    << sh + st
+    //    ;
+
+    // ca << line().from(x, y).to(x, y) + style().thick(t).color(c)
+    // ca << line().from(x, y).to(x, y).with.thick(t).color(c)
+
+    kd::matrix<kd::scalar<float, kd::RGBA>> mat(1024, 1024);
+    auto w = static_cast<float>(mat. width());
+    auto h = static_cast<float>(mat.height());
+    
+    float cx = w * 0.5f, cy = h * 0.5f;
     for (int j = 0; j < 5; j++) {
         float r1 = fminf(w, h) * (j + 0.5f) * 0.085f;
         float r2 = fminf(w, h) * (j + 1.5f) * 0.085f;
         float t = j * 3.14159f / 64.0f, r = (j + 1) * 0.5f;
         for (int i = 1; i <= 64; i++, t += 2.0f * 3.14159f / 64.0f) {
             float ct = cosf(t), st = sinf(t);
-            s = fmaxf(s, fminf(0.5f - capsule(x, y, cx + r1 * ct, cy - r1 * st, cx + r2 * ct, cy - r2 * st, r), 1.0f));
+            kd::detail::graphic::line
+            ( mat
+            , kd::vec<float>{cx + r1 * ct, cy - r1 * st}
+            , kd::vec<float>{cx + r2 * ct, cy - r2 * st}
+            , r
+            , kd::scalar<float, kd::RGBA>{0, 0, 0, 1}
+            );
         }
     }
-    return s;
-}
 
-// archive << pattern << shape << hash << text
+    kd::detail::graphic::line
+    ( mat
+    , kd::vec<float>{0, 0}
+    , kd::vec<float>{1024, 1024}
+    , 32.f
+    , kd::scalar<float, kd::RGBA>{0.4f, 0.5f, 0.6f, 0.8f}
+    );
 
-TEST_CASE()
-{
-    kd::matrix<kd::scalar<kd::RGBA, float>> mat(256, 256);
-    auto w = mat. width();
-    auto h = mat.height();
-    for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
-            auto & c = mat.at(x, y);
-            c.r = c.g = c.b = 1.0f - sample(x, y, w, h);
-            c.a = 1.0f - c.r;
-        }
-    }
     kd::save("test.bmp", mat);
 }
