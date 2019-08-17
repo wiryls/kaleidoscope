@@ -24,6 +24,11 @@ namespace kd { namespace detail
         (std::is_unsigned<T>::value && std::is_unsigned<U>::value)
         ;
 
+    template<typename T>
+    constexpr bool is_same_sign_v<T, T> =
+        (std::is_signed<T>::value || std::is_unsigned<T>::value)
+        ;
+
     template<typename T, typename U> constexpr
     T saturate_cast_impl(U src, T min, T max)
     {

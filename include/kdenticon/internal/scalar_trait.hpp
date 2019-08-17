@@ -17,6 +17,30 @@ namespace std
 namespace kd { namespace detail
 {
     /************************************************************************
+     * value type test
+     ***********************************************************************/
+
+    template<typename... Ts> struct make_void { using type = void; };
+    template<typename... Ts> using  void_t = typename make_void<Ts...>::type;
+
+    template<typename T, bool>
+    struct value_like_base
+    {};
+
+    template<typename T>
+    struct value_like_base<T, true>
+    {
+        using value_type = T;
+    };
+
+    template<typename T>
+    struct value_like : value_like_base<T, std::is_convertible_v<T, int>>
+    {};
+
+    template<typename T>
+    using value_like_t = typename value_like<T>::value_type;
+
+    /************************************************************************
      * static_array_trait
      ***********************************************************************/
 
@@ -131,8 +155,6 @@ namespace kd { namespace detail
      ***********************************************************************/
 
     template<typename... Ts> struct pack {};
-    template<typename... Ts> struct make_void { using type = void; };
-    template<typename... Ts> using  void_t = typename make_void<Ts...>::type;
 
     template
         < typename T
@@ -538,7 +560,7 @@ namespace kd { namespace detail
     }
 }}
 
-namespace kd { namespace detail
+namespace kd { namespace detail { namespace abbr
 {
     /************************************************************************
      * simplify
@@ -591,4 +613,4 @@ namespace kd { namespace detail
 
     template<typename T> inline typename gray_scalar_trait<T>::
         value_type const & G(T const & s) { return gray(s); }
-}}
+}}}

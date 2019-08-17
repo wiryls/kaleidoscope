@@ -31,9 +31,6 @@
     <ClInclude Include="..\..\include\kdenticon\internal\pattern.hpp">
       <Filter>Header Files\internal</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\include\kdenticon\internal\binary.hpp">
-      <Filter>Header Files\internal</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\include\kdenticon\internal\graphic.hpp">
       <Filter>Header Files\internal</Filter>
     </ClInclude>

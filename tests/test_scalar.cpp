@@ -208,7 +208,7 @@ TEST_CASE("scalar_assign<gray, ...>(...)", "[scalar_trait]")
         REQUIRE((scalar_assign(c08, v), c08) == lim<decltype(c08)>::max());
         REQUIRE((scalar_assign(b01, v), b01) == lim<decltype(b01)>::max());
     } SECTION("uint64_t") {
-        auto v = lim<uint64_t>::max();
+        auto constexpr v = lim<uint64_t>::max();
         REQUIRE((scalar_assign(u64, v), u64) == lim<decltype(u64)>::max());
         REQUIRE((scalar_assign(u32, v), u32) == lim<decltype(u32)>::max());
         REQUIRE((scalar_assign(u16, v), u16) == lim<decltype(u16)>::max());
@@ -222,5 +222,4 @@ TEST_CASE("scalar_assign<gray, ...>(...)", "[scalar_trait]")
         REQUIRE((scalar_assign(c08, v), c08) == lim<decltype(c08)>::max());
         REQUIRE((scalar_assign(b01, v), b01) == lim<decltype(b01)>::max());
     }
-
 }

@@ -94,7 +94,7 @@ namespace kd { namespace detail
         height(std::declval<T>()),
          width(std::declval<T>()),
             at(std::declval<T>(), size_t{}, size_t{}),
-        void()
+          void()
     )>  : readable_matrix_trait_base<T>
         , writable_matrix_trait_base<T>
     {

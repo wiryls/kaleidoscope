@@ -13,8 +13,8 @@ TEST_CASE("saturate_cast", "[cast]")
         using x_t = int8_t;
         using y_t = int8_t;
 
-        auto const min = std::numeric_limits<y_t>::min();
-        auto const max = std::numeric_limits<y_t>::max();
+        auto constexpr min = std::numeric_limits<y_t>::min();
+        auto constexpr max = std::numeric_limits<y_t>::max();
         auto cs = std::vector<std::pair<x_t, y_t>>{
             {x_t(1), y_t(1)},
             {x_t(0), y_t(0)},
@@ -37,7 +37,7 @@ TEST_CASE("saturate_cast", "[cast]")
         using x_t = int8_t;
         using y_t = uint8_t;
 
-        auto const min = std::numeric_limits<y_t>::min();
+        auto constexpr min = std::numeric_limits<y_t>::min();
         auto cs = std::vector<std::pair<x_t, y_t>>{
             {x_t(min), min},
             {x_t(min) + x_t(1), min + y_t(1)},
@@ -77,8 +77,8 @@ TEST_CASE("saturate_cast", "[cast]")
         using x_t = float;
         using y_t = int32_t;
         
-        auto const min = std::numeric_limits<y_t>::min();
-        auto const max = std::numeric_limits<y_t>::max();
+        auto constexpr min = std::numeric_limits<y_t>::min();
+        auto constexpr max = std::numeric_limits<y_t>::max();
         auto cs = std::vector<std::pair<x_t, y_t>> {
             {x_t(min) - 1024.f, min},
             {x_t(min) - 1.f, min},
@@ -105,7 +105,7 @@ TEST_CASE("saturate_cast", "[cast]")
         using x_t = uint32_t;
         using y_t = float;
 
-        auto const max = std::numeric_limits<x_t>::max();
+        auto constexpr max = std::numeric_limits<x_t>::max();
         auto cs = std::vector<std::pair<x_t, y_t>>{
             {x_t(0), 0.f},
             {x_t(1), 1.f},
