@@ -48,6 +48,7 @@ namespace kd
         ok,
         stream_unavailable,
         format_not_supported,
+        image_size_is_zero,
         image_size_too_large,
     };
 
@@ -99,9 +100,11 @@ namespace kd
         // size check
         auto w = static_cast<uint32_t>( width(mat));
         auto h = static_cast<uint32_t>(height(mat));
-        if (w > uint32_t(std::numeric_limits<uint16_t>::max()) ||
-            h > uint32_t(std::numeric_limits<uint16_t>::max()))
-            return save_result::image_size_too_large;
+        {
+            auto constexpr m = std::numeric_limits<uint16_t>::max();
+            if (w > m || h > m)
+                return save_result::image_size_too_large;
+        }
 
         // size
         static constexpr uint32_t bmph_size = 14;
@@ -182,17 +185,20 @@ namespace kd
     }
 
     template<typename T, typename U> inline
-    save_result_t<T> save_png(T & os, U const & mat)
+    save_result_t<T> save_png4(T & os, U const & mat)
     {
         using detail::binary::write;
         using detail::scalar_assign;
 
-        // size check
         auto w = static_cast<uint32_t>( width(mat));
         auto h = static_cast<uint32_t>(height(mat));
-        if (w > uint32_t(std::numeric_limits<int32_t>::max()) ||
-            h > uint32_t(std::numeric_limits<int32_t>::max()))
-            return save_result::image_size_too_large;
+        {   // check size
+            auto constexpr m = uint32_t(std::numeric_limits<int32_t>::max());
+            if (w > m || h > m)
+                return save_result::image_size_too_large;
+            if (w == 0 || h == 0)
+                return save_result::image_size_is_zero;
+        }
 
         // TODO:
         // calc size
@@ -206,16 +212,18 @@ namespace kd
 
         // write IHDR chunk
         cur = write<uint32_t>(cur, 13);                 /* data length */
+
         cur = write(cur, "IDHR");                       /* chunk type */
+
         cur = write<uint32_t>(cur, w);                  /* width */
         cur = write<uint32_t>(cur, h);                  /* height */
         cur = write<uint8_t>(cur, 8);                   /* bit depth */
-        cur = write<uint8_t>(cur, 2);                   /* color type */
+        cur = write<uint8_t>(cur, 6);                   /* color type */
         cur = write<uint8_t>(cur, 0);                   /* compression */
         cur = write<uint8_t>(cur, 0);                   /* filter */
         cur = write<uint8_t>(cur, 0);                   /* interlace */
 
-        cur = write<uint32_t>(cur, 0);                  /* data type CRC */
+        cur = write<uint32_t>(cur, 0);                  /* CRC of data */
 
         // write IDAT chunk
         cur = write<uint32_t>(cur, 0);                  /* data length */
@@ -324,4 +332,71 @@ namespace kd { namespace detail { namespace binary
             *dst++ = static_cast<uint8_t>(*ptr++);
         return dst;
     }
+
+    /************************************************************************
+     * static output binary stream
+     ***********************************************************************/
+
+    template<size_t N> class sobs
+    {
+    private:
+        /* a fixed size buffer */
+        class buffer_t
+        {
+        public:
+            buffer_t() noexcept;
+           ~buffer_t() noexcept;
+            buffer_t(buffer_t const& rhs) noexcept;
+            inline buffer_t& operator=(buffer_t const& rhs) noexcept;
+            inline operator const uint8_t* () const noexcept;
+            inline void put(uint8_t c) noexcept;
+            inline void clr() noexcept;
+        private:
+            inline void fin() noexcept;
+        private:
+            static constexpr size_t capacity = N + 1;
+            uint8_t* cur;
+            uint8_t* end;
+            uint8_t  beg[capacity];
+        };
+
+    private:
+        /* a counter_t for recording the rest size of buffer */
+        template<size_t I> class counter_t
+        {
+        public:
+            counter_t(buffer_t& buffer) noexcept;
+            inline operator const uint8_t* () const noexcept;
+        public:
+            template<typename T> inline
+            std::enable_if_t
+                < std::is_integral_v<T> && sizeof(T) <= I && I <= N
+                , counter_t<I - sizeof(T)>
+                >
+            operator|(T rhs) noexcept;
+
+            template<size_t R> inline
+            std::enable_if_t<(R <= I + 1 && I <= N), counter_t<I + 1 - R>>
+            operator|(char const(&rhs)[R]) noexcept;
+
+            inline std::enable_if_t< 4 <= I && I <= N, counter_t<I - 4>>
+            operator|(float rhs) noexcept;
+
+            inline std::enable_if_t< 8 <= I && I <= N, counter_t<I - 8>>
+            operator|(double rhs) noexcept;
+
+        private:
+            buffer_t & buffer;
+        };
+
+    public:
+        /* method */
+        sobs() noexcept;
+
+        template<typename T> inline auto
+        operator|(T rhs) noexcept ->
+        decltype(std::declval<counter_t<N>>() | rhs);
+    };
+
+
 }}}
