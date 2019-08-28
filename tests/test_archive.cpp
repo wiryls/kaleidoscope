@@ -118,3 +118,15 @@ TEST_CASE("foobar")
 	for (auto i = 0; i < 8; i++)
 		std::cout << std::hex << int(buffer.get()[i]) << std::endl;
 }
+
+TEST_CASE("binary::exactly_writter_t")
+{
+    using kd::detail::binary::exactly_writter_t;
+
+    auto bu = 1;
+    auto ex = exactly_writter_t<int, 0, 8>(bu);
+
+    auto a = ex
+        << uint32_t(123)
+        ;
+}

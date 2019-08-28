@@ -337,66 +337,105 @@ namespace kd { namespace detail { namespace binary
      * static output binary stream
      ***********************************************************************/
 
-    template<size_t N> class sobs
+    ///* fixed size bytes buffer */
+    //template<size_t N>
+    //struct bytes_t
+    //{
+    //public:
+    //    bytes_t() noexcept;
+    //   ~bytes_t() noexcept;
+    //    bytes_t(bytes_t const& rhs) noexcept;
+    //    inline bytes_t& operator=(bytes_t const& rhs) noexcept;
+    //    inline operator const uint8_t* () const noexcept;
+    //    inline void put(uint8_t byte) noexcept;
+    //    inline void clr() noexcept;
+    //private:
+    //    inline void fin() noexcept;
+    //private:
+    //    static constexpr size_t capacity = N + 1;
+    //    uint8_t* cur;
+    //    uint8_t* end;
+    //    uint8_t  beg[capacity];
+    //};
+
+    /* exactly write n bytes and then we could get the result */
+    template<typename T, size_t I, size_t N>
+    struct exactly_writter_t
     {
-    private:
-        /* a fixed size buffer */
-        class buffer_t
-        {
-        public:
-            buffer_t() noexcept;
-           ~buffer_t() noexcept;
-            buffer_t(buffer_t const& rhs) noexcept;
-            inline buffer_t& operator=(buffer_t const& rhs) noexcept;
-            inline operator const uint8_t* () const noexcept;
-            inline void put(uint8_t c) noexcept;
-            inline void clr() noexcept;
-        private:
-            inline void fin() noexcept;
-        private:
-            static constexpr size_t capacity = N + 1;
-            uint8_t* cur;
-            uint8_t* end;
-            uint8_t  beg[capacity];
-        };
+    public:
+        template<size_t R> using
+        next_t = typename std::enable_if<(I+R <= N), exactly_writter_t<T, I+R, N>>::type;
 
     private:
-        /* a counter_t for recording the rest size of buffer */
-        template<size_t I> class counter_t
-        {
-        public:
-            counter_t(buffer_t& buffer) noexcept;
-            inline operator const uint8_t* () const noexcept;
-        public:
-            template<typename T> inline
-            std::enable_if_t
-                < std::is_integral_v<T> && sizeof(T) <= I && I <= N
-                , counter_t<I - sizeof(T)>
-                >
-            operator|(T rhs) noexcept;
-
-            template<size_t R> inline
-            std::enable_if_t<(R <= I + 1 && I <= N), counter_t<I + 1 - R>>
-            operator|(char const(&rhs)[R]) noexcept;
-
-            inline std::enable_if_t< 4 <= I && I <= N, counter_t<I - 4>>
-            operator|(float rhs) noexcept;
-
-            inline std::enable_if_t< 8 <= I && I <= N, counter_t<I - 8>>
-            operator|(double rhs) noexcept;
-
-        private:
-            buffer_t & buffer;
-        };
+        template<typename T> using
+        full_if_t = std::enable_if_t<I == N, T>;
 
     public:
         /* method */
-        sobs() noexcept;
+        exactly_writter_t(T & buffer) noexcept;
 
-        template<typename T> inline auto
-        operator|(T rhs) noexcept ->
-        decltype(std::declval<counter_t<N>>() | rhs);
+    public:
+        //inline operator full_if_t<const uint8_t *>() const noexcept;
+
+    public:
+        template<typename U> inline friend
+        std::enable_if_t<std::is_integral_v<U>, next_t<sizeof(U)>>
+        operator<<(exactly_writter_t & os, U rhs) noexcept;
+
+        template<size_t R> inline friend next_t<R - 1>
+        operator<<(exactly_writter_t& os, char const(&rhs)[R]) noexcept;
+
+        inline friend next_t<sizeof(double)>
+        operator<<(exactly_writter_t& os, double rhs) noexcept;
+
+        inline friend next_t<sizeof( float)>
+        operator<<(exactly_writter_t& os, float rhs) noexcept;
+
+    private:
+        T & buffer;
     };
 
+    template<typename T, size_t I, size_t N> inline
+    exactly_writter_t<T, I, N>::exactly_writter_t(T& buffer) noexcept
+        : buffer(buffer)
+    {}
 
+    //template<typename T, size_t I, size_t N> inline
+    //exactly_writter_t<T, I, N>::
+    //operator exactly_writter_t::full_if_t<const uint8_t*>() const noexcept
+    //{
+    //    return nullptr;
+    //}
+
+    template<typename T, size_t I, size_t N, typename U> inline
+    std::enable_if_t<std::is_integral_v<U>,
+    typename exactly_writter_t<T, I, N>:: template next_t<U>>
+    operator<<(exactly_writter_t<T, I, N>& ew, U rhs) noexcept
+    {
+        auto constexpr size = sizeof U;
+        return exactly_writter_t<T, I, N>::template next_t<size>(ew.buffer);
+    }
+
+    template<typename T, size_t I, size_t N, size_t R> inline
+    typename   exactly_writter_t<T, I, N>:: template next_t<R>
+    operator<<(exactly_writter_t<T, I, N>& ew, char const(&rhs)[R]) noexcept
+    {
+        return exactly_writter_t<T, I, N>::template next_t<R>(ew.buffer);
+    }
+
+    template<typename T, size_t I, size_t N> inline
+    typename   exactly_writter_t<T, I, N>:: template next_t <sizeof(double)>
+    operator<<(exactly_writter_t<T, I, N>& ew, double rhs) noexcept
+    {
+        auto constexpr size = sizeof(double);
+        return exactly_writter_t<T, I, N>::template next_t<size>(ew.buffer);
+    }
+
+    template<typename T, size_t I, size_t N> inline
+    typename   exactly_writter_t<T, I, N>:: template next_t <sizeof(float)>
+    operator<<(exactly_writter_t<T, I, N>& ew, float rhs) noexcept
+    {
+        auto constexpr size = sizeof(float);
+        return exactly_writter_t<T, I, N>::template next_t<size>(ew.buffer);
+    }
 }}}
