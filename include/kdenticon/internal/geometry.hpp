@@ -1,5 +1,7 @@
 #pragma once
 
+#include "cast.hpp"
+
 namespace kd
 {
     /************************************************************************
@@ -132,3 +134,17 @@ namespace kd
         return static_cast<T>(std::sqrt(norm_squared(v)));
     }
 }
+
+namespace kd { namespace detail
+{
+    /************************************************************************
+     * saturate_cast<vec2<T>>
+     ***********************************************************************/
+
+    template<typename T, typename U> constexpr auto
+    saturate_cast(vec2<U> src) ->
+    decltype(saturate_cast<T>(U()), vec2<T>())
+    {
+        return vec2<T>{ saturate_cast<T>(src.x), saturate_cast<T>(src.y) };
+    }
+}}

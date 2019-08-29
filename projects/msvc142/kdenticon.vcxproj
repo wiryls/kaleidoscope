@@ -20,7 +20,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\include\kdenticon\internal\archive.hpp" />
-    <ClInclude Include="..\..\include\kdenticon\internal\binary.hpp" />
     <ClInclude Include="..\..\include\kdenticon\internal\cast.hpp" />
     <ClInclude Include="..\..\include\kdenticon\internal\geometry.hpp" />
     <ClInclude Include="..\..\include\kdenticon\internal\graphic.hpp" />

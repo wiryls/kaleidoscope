@@ -56,7 +56,7 @@ namespace kd { namespace detail
     }
 
     template<typename T, typename U> inline std::array<vec2<T>, 4>
-    bounding_box(vec2<T> const & a, vec2<T> const & b, U const & thick)
+    build_bounding_box(vec2<T> const & a, vec2<T> const & b, U const & thick)
     {
         auto r = std::max(static_cast<T>(thick), T(1));
         auto n = norm(a - b);
@@ -263,7 +263,7 @@ namespace kd { namespace detail { namespace graphic
 
         /* Reference:
          *
-         * [Cohen¨CSutherland Algorithm]
+         * [Cohenï¿½CSutherland Algorithm]
          * (https://en.wikipedia.org/wiki/Cohen%E2%80%93Sutherland_algorithm)
          */
     }
@@ -277,13 +277,14 @@ namespace kd { namespace detail { namespace graphic
      ***********************************************************************/
 
     using real = float;
-    static constexpr auto min = real(0);
-    static constexpr auto max = real(1);
-
     using rgba = real[4];
+	static constexpr auto min = real(0);
+	static constexpr auto max = real(1);
 
     inline void alpha_blend(rgba const & src, rgba const & dst, rgba & out)
     {
+		using namespace detail::abbr;
+
         /* src over dst */
 
         R(out) = R(src) * A(src) + R(dst) * A(dst) * (max - A(src));
@@ -317,20 +318,26 @@ namespace kd { namespace detail { namespace graphic
     ) {
         auto pa = p - a;
         auto ba = b - a;
-        auto h = std::max(std::min((pa * ba) / (ba * ba), max), min);
-        auto d = pa - ba * h;
-        return std::sqrt(d * d) - thick;
+		auto bas = ba * ba;
+
+		auto d = pa;
+		if (bas != real()) {
+			d -= ba * std::max(std::min((pa * ba) / bas, max), min);
+		}
+
+		return std::sqrt(d * d) - thick;
     }
 
-    template<typename T, typename U> inline void_t
+    template<typename T, typename U, typename V, typename W> inline void_t
     < scalar_trait_t<matrix_trait_wvt<T>>
-    , scalar_trait_t<U>
+    , scalar_trait_t<W>
+	, value_like_t<V>
     > line0
-    ( T                & mat
-    , vec2<real> const & from
-    , vec2<real> const & to
-    , real               thick
-    , U          const & color
+    ( T             & mat
+    , vec2<U> const & from
+    , vec2<U> const & to
+    , V               thick
+    , W       const & color
     ) {
         auto w = static_cast<real>( width(mat));
         auto h = static_cast<real>(height(mat));
@@ -339,18 +346,14 @@ namespace kd { namespace detail { namespace graphic
         rgba blend; scalar_assign(blend, brush);
         rgba pixel;
 
-        auto a = vec2<size_t>{
-            static_cast<size_t>(from.x),
-            static_cast<size_t>(from.y),
-        };
-
-        auto b = vec2<size_t>{
-            static_cast<size_t>(to.x),
-            static_cast<size_t>(to.y),
-        };
-
-        bresenham(a, b, [&mat, w, h, &brush, &blend, &pixel](size_t x, size_t y)
+		auto a = saturate_cast<size_t>(from);
+		auto b = saturate_cast<size_t>(to);
+		auto r = static_cast<real>(thick) / 2.f;
+        
+		bresenham(a, b, [&mat, w, h, &brush, &blend, &pixel](size_t x, size_t y)
         {
+			using namespace abbr;
+
             if (0 <= x && x < w && 0 <= y && y < h) {
                 scalar_assign(pixel, at(mat, x, y));
 
@@ -362,20 +365,25 @@ namespace kd { namespace detail { namespace graphic
         });
     }
 
-    template<typename T, typename U> inline void_t
+    template<typename T, typename U, typename V, typename W> inline void_t
     < scalar_trait_t<matrix_trait_wvt<T>>
-    , scalar_trait_t<U>
+    , scalar_trait_t<W>
+	, value_like_t<V>
     > line
-    ( T                & mat
-    , vec2<real> const & from
-    , vec2<real> const & to
-    , real               thick
-    , U          const & color
+    ( T             & mat
+    , vec2<U> const & from
+    , vec2<U> const & to
+    , V               thick
+    , W       const & color
     ) {
-        auto left   = std::floor(std::min(from.x, to.x) - thick);
-        auto bottom = std::floor(std::min(from.y, to.y) - thick);
-        auto right  = std:: ceil(std::max(from.x, to.x) + thick + real(1));
-        auto top    = std:: ceil(std::max(from.y, to.y) + thick + real(1));
+		auto start  = saturate_cast<real>(from);
+		auto end    = saturate_cast<real>(to);
+		auto radius = static_cast<real>(thick) / 2.f;
+
+        auto left   = std::floor(std::min(start.x, end.x) - radius);
+        auto bottom = std::floor(std::min(start.y, end.y) - radius);
+        auto right  = std:: ceil(std::max(start.x, end.x) + radius + real(1));
+        auto top    = std:: ceil(std::max(start.y, end.y) + radius + real(1));
 
         auto w = static_cast<real>( width(mat));
         auto h = static_cast<real>(height(mat));
@@ -391,12 +399,13 @@ namespace kd { namespace detail { namespace graphic
 
         for (auto y = y_min; y < y_max; ++y) {
             for (auto x = x_min; x < x_max; ++x) {
+				using namespace abbr;
                 auto pos = vec2<real>{static_cast<real>(x), static_cast<real>(y)};
-                auto sdf = real(0.5) - capsule_sdf(pos, from, to, thick);
+                auto sdf = real(0.5) - capsule_sdf(pos, start, end, radius);
                 A(blend) = A(brush) * std::min(std::max(sdf, min), max);
 
                 scalar_assign(pixel, at(mat, x, y));
-                alpha_blend(blend, pixel, pixel);
+                alpha_blend  (blend, pixel, pixel);
                 scalar_assign(at(mat, x, y), pixel);
             }
         }
