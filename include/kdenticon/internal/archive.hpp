@@ -334,108 +334,146 @@ namespace kd { namespace detail { namespace binary
     }
 
     /************************************************************************
-     * static output binary stream
+     * exact_writter_t and its helper
      ***********************************************************************/
 
-    ///* fixed size bytes buffer */
-    //template<size_t N>
-    //struct bytes_t
-    //{
-    //public:
-    //    bytes_t() noexcept;
-    //   ~bytes_t() noexcept;
-    //    bytes_t(bytes_t const& rhs) noexcept;
-    //    inline bytes_t& operator=(bytes_t const& rhs) noexcept;
-    //    inline operator const uint8_t* () const noexcept;
-    //    inline void put(uint8_t byte) noexcept;
-    //    inline void clr() noexcept;
-    //private:
-    //    inline void fin() noexcept;
-    //private:
-    //    static constexpr size_t capacity = N + 1;
-    //    uint8_t* cur;
-    //    uint8_t* end;
-    //    uint8_t  beg[capacity];
-    //};
+    template<typename T, size_t I, size_t N>
+    struct exact_writter_t;
+
+    template<typename T, size_t I, size_t N, size_t S>
+    using exact_write_size_t
+        = std::enable_if_t<I + S <= N, exact_writter_t<T, I + S, N>>
+        ;
+
+    template<typename T, size_t I, size_t N, typename U>
+    using exact_write_integer_t
+        = std::enable_if_t
+        < std::is_integral_v<U> && I + sizeof(U) <= N
+        , exact_writter_t<T, I + sizeof(U), N>
+        >
+        ;
+
+    template<typename T, size_t I, size_t N, typename U>
+    exact_write_integer_t<T, I, N, U>
+    operator<<(exact_writter_t<T, I, N> ew, U v) noexcept;
+
+    template<typename T, size_t I, size_t N, size_t S>
+    exact_write_size_t<T, I, N, S - 1>
+    operator<<(exact_writter_t<T, I, N> ew, char const(&v)[S])
+    noexcept;
+
+    template<typename T, size_t I, size_t N>
+    exact_write_size_t<T, I, N, sizeof(float)>
+    operator<<(exact_writter_t<T, I, N> ew, float v) noexcept;
+
+    template<typename T, size_t I, size_t N>
+    exact_write_size_t<T, I, N, sizeof(double)>
+    operator<<(exact_writter_t<T, I, N> ew, double v) noexcept;
 
     /* exactly write n bytes and then we could get the result */
     template<typename T, size_t I, size_t N>
-    struct exactly_writter_t
+    struct exact_writter_t
     {
     public:
-        template<size_t R> using
-        next_t = typename std::enable_if<(I+R <= N), exactly_writter_t<T, I+R, N>>::type;
-
-    private:
-        template<typename T> using
-        full_if_t = std::enable_if_t<I == N, T>;
+        /* methods */
+        exact_writter_t(T & buffer) noexcept;
 
     public:
-        /* method */
-        exactly_writter_t(T & buffer) noexcept;
+        /* friends */
+        template<typename T, size_t I, size_t N, typename U> friend
+        exact_write_integer_t<T, I, N, U>
+        operator<<(exact_writter_t<T, I, N> w, U v) noexcept;
 
-    public:
-        //inline operator full_if_t<const uint8_t *>() const noexcept;
+        template<typename T, size_t I, size_t N, size_t S> friend
+        exact_write_size_t<T, I, N, S - 1>
+        operator<<(exact_writter_t<T, I, N> w, char const(&v)[S]) noexcept;
 
-    public:
-        template<typename U> inline friend
-        std::enable_if_t<std::is_integral_v<U>, next_t<sizeof(U)>>
-        operator<<(exactly_writter_t & os, U rhs) noexcept;
+        template<typename T, size_t I, size_t N> friend
+        exact_write_size_t<T, I, N, sizeof(float)>
+        operator<<(exact_writter_t<T, I, N> w, float v) noexcept;
 
-        template<size_t R> inline friend next_t<R - 1>
-        operator<<(exactly_writter_t& os, char const(&rhs)[R]) noexcept;
-
-        inline friend next_t<sizeof(double)>
-        operator<<(exactly_writter_t& os, double rhs) noexcept;
-
-        inline friend next_t<sizeof( float)>
-        operator<<(exactly_writter_t& os, float rhs) noexcept;
+        template<typename T, size_t I, size_t N> friend
+        exact_write_size_t<T, I, N, sizeof(double)>
+        operator<<(exact_writter_t<T, I, N> w, double v) noexcept;
 
     private:
         T & buffer;
     };
 
     template<typename T, size_t I, size_t N> inline
-    exactly_writter_t<T, I, N>::exactly_writter_t(T& buffer) noexcept
+    exact_writter_t<T, I, N>::exact_writter_t(T& buffer) noexcept
         : buffer(buffer)
     {}
 
-    //template<typename T, size_t I, size_t N> inline
-    //exactly_writter_t<T, I, N>::
-    //operator exactly_writter_t::full_if_t<const uint8_t*>() const noexcept
-    //{
-    //    return nullptr;
-    //}
+    /* writter is full and become readonly */
+    template<typename T, size_t N>
+    struct exact_writter_t<T, N, N>
+    {
+    public:
+        exact_writter_t(T& buffer) noexcept;
+
+    public:
+        inline operator    char const* () const noexcept;
+        inline operator  int8_t const* () const noexcept;
+        inline operator uint8_t const* () const noexcept;
+
+    private:
+        T & buffer;
+    };
+
+    template<typename T, size_t N> inline
+    exact_writter_t<T, N, N>::operator char const* () const noexcept
+    {
+        return nullptr;
+    }
+
+    template<typename T, size_t N> inline
+    exact_writter_t<T, N, N>::operator int8_t const* () const noexcept
+    {
+        return nullptr;
+    }
+
+    template<typename T, size_t N> inline
+    exact_writter_t<T, N, N>::operator uint8_t const* () const noexcept
+    {
+        return nullptr;
+    }
 
     template<typename T, size_t I, size_t N, typename U> inline
-    std::enable_if_t<std::is_integral_v<U>,
-    typename exactly_writter_t<T, I, N>:: template next_t<U>>
-    operator<<(exactly_writter_t<T, I, N>& ew, U rhs) noexcept
+    exact_write_integer_t<T, I, N, U>
+    operator<<(exact_writter_t<T, I, N> ew, U rhs) noexcept
     {
-        auto constexpr size = sizeof U;
-        return exactly_writter_t<T, I, N>::template next_t<size>(ew.buffer);
+        auto constexpr size = sizeof(U);
+        
+        return exact_write_size_t<T, I, N, size>(ew.buffer);
     }
 
-    template<typename T, size_t I, size_t N, size_t R> inline
-    typename   exactly_writter_t<T, I, N>:: template next_t<R>
-    operator<<(exactly_writter_t<T, I, N>& ew, char const(&rhs)[R]) noexcept
+    template<typename T, size_t I, size_t N, size_t S> inline
+    exact_write_size_t<T, I, N, S - 1>
+    operator<<(exact_writter_t<T, I, N> ew, char const(&rhs)[S])
+    noexcept
     {
-        return exactly_writter_t<T, I, N>::template next_t<R>(ew.buffer);
+        auto constexpr size = S - 1;
+
+        return exact_write_size_t<T, I, N, size>(ew.buffer);
     }
 
-    template<typename T, size_t I, size_t N> inline
-    typename   exactly_writter_t<T, I, N>:: template next_t <sizeof(double)>
-    operator<<(exactly_writter_t<T, I, N>& ew, double rhs) noexcept
-    {
-        auto constexpr size = sizeof(double);
-        return exactly_writter_t<T, I, N>::template next_t<size>(ew.buffer);
-    }
-
-    template<typename T, size_t I, size_t N> inline
-    typename   exactly_writter_t<T, I, N>:: template next_t <sizeof(float)>
-    operator<<(exactly_writter_t<T, I, N>& ew, float rhs) noexcept
+    template<typename T, size_t I, size_t N>
+    exact_write_size_t<T, I, N, sizeof(float)>
+    operator<<(exact_writter_t<T, I, N> ew, float rhs) noexcept
     {
         auto constexpr size = sizeof(float);
-        return exactly_writter_t<T, I, N>::template next_t<size>(ew.buffer);
+
+        return exact_write_size_t<T, I, N, size>(ew.buffer);
     }
+
+    template<typename T, size_t I, size_t N>
+    exact_write_size_t<T, I, N, sizeof(double)>
+    operator<<(exact_writter_t<T, I, N> ew, double rhs) noexcept
+    {
+        auto constexpr size = sizeof(double);
+
+        return exact_write_size_t<T, I, N, size>(ew.buffer);
+    }
+
 }}}

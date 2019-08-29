@@ -119,14 +119,20 @@ TEST_CASE("foobar")
 		std::cout << std::hex << int(buffer.get()[i]) << std::endl;
 }
 
-TEST_CASE("binary::exactly_writter_t")
+TEST_CASE("binary::exact_writter_t")
 {
-    using kd::detail::binary::exactly_writter_t;
+    using kd::detail::binary::exact_writter_t;
 
     auto bu = 1;
-    auto ex = exactly_writter_t<int, 0, 8>(bu);
+    auto ex = exact_writter_t<int, 0, 8>(bu);
 
     auto a = ex
         << uint32_t(123)
         ;
+
+    auto b = a
+        << uint32_t(123)
+        ;
+
+    auto p = static_cast<const uint8_t *>(b);
 }
