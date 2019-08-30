@@ -22,16 +22,10 @@ namespace kd { namespace detail
     // the last type Z in will be returned.
 
     template<typename T, typename... U>
-    struct last_type
-    {
-        using type = typename last_type<U...>::type;
-    };
+    struct last_type { using type = typename last_type<U...>::type; };
 
     template<typename T>
-    struct last_type<T>
-    {
-        using type = T;
-    };
+    struct last_type<T> { using type = T; };
     
     template<typename... T>
     using last_t = typename last_type<T...>::type;
@@ -94,7 +88,7 @@ namespace kd
     template<typename T, typename U> inline
     save_result_t<U> save_bmp4(T & os, U const & mat)
     {
-        using detail::binary::write;
+        using detail::write;
         using detail::scalar_assign;
 
         // size check
@@ -187,7 +181,7 @@ namespace kd
     template<typename T, typename U> inline
     save_result_t<T> save_png4(T & os, U const & mat)
     {
-        using detail::binary::write;
+        using detail::write;
         using detail::scalar_assign;
 
         auto w = static_cast<uint32_t>( width(mat));
@@ -249,16 +243,6 @@ namespace kd
 namespace kd { namespace detail
 {
     /************************************************************************
-     * helper
-     ***********************************************************************/
-
-
-
-}}
-
-namespace kd { namespace detail { namespace binary
-{
-    /************************************************************************
      * write primitives to buffer
      ***********************************************************************/
 
@@ -279,29 +263,6 @@ namespace kd { namespace detail { namespace binary
     {
         uint64_t u64 = 0;
         std::memcpy(&u64, &src, sizeof(double));
-
-        /* Note:
-        Although type-punning via union works in most C++ compilers,
-        still, it is UB.
-         
-        So instead of doing:
-        ```
-        union {
-            double   f64 = 0.0;
-            uint64_t u64;
-        };
-        f64 = val;
-        return write(mem, u64);
-        ```
-        I choose `memcpy`.
-        
-        References:
-        [Unions and type-punning]
-        (https://stackoverflow.com/a/25672839)
-        [Proper way of type-punning a float to an int and vice-versa]
-        (https://stackoverflow.com/a/17790026)
-        */
-
         return write(dst, u64);
     }
 
@@ -334,6 +295,75 @@ namespace kd { namespace detail { namespace binary
     }
 
     /************************************************************************
+     * basic write
+     ***********************************************************************/
+
+    template<typename T> inline
+    std::enable_if_t<std::is_arithmetic_v<T>, uint8_t *>
+    write_byte_unsafe(uint8_t* dst, T src) noexcept
+    {
+        auto cnt = sizeof(T);
+        while (cnt-- > 0) {
+            *dst++ = static_cast<uint8_t>(src);
+            src >>= 8;
+        }
+    }
+
+    template<size_t O, size_t N, size_t S> constexpr inline
+    std::enable_if_t<(O + N <= S)>
+    write_byte_unsafe(uint8_t * dst, char const (&src)[S]) noexcept
+    {
+        auto cnt = N;
+        auto ptr = src + static_cast<std::ptrdiff_t>(O);
+        while (cnt-- > 0)
+            * dst++ = static_cast<uint8_t>(*ptr++);
+    }
+
+    inline
+    uint8_t *
+    write_byte_unsafe(uint8_t * dst, double src) noexcept
+    {
+        /* Note:
+
+        Although type-punning via union works in most C++ compilers,
+        still, it is UB.
+         
+        So instead of doing:
+        ```
+        union {
+            double   f64 = 0.0;
+            uint64_t u64;
+        };
+        f64 = val;
+        ```
+
+        I choose:
+        ```
+        std::memcpy(&u64, &val, sizeof(double))
+        ```
+        
+        References:
+        [Unions and type-punning]
+        (https://stackoverflow.com/a/25672839)
+        [Proper way of type-punning a float to an int and vice-versa]
+        (https://stackoverflow.com/a/17790026)
+        */
+
+        uint64_t u64;
+        std::memcpy(&u64, &src, sizeof(double));
+        write_byte_unsafe(dst, u64);
+    }
+
+    inline
+    uint8_t *
+    write_byte_unsafe(uint8_t * dst, float src) noexcept
+    {
+        uint32_t u32;
+        std::memcpy(&u32, &src, sizeof(float));
+        write_byte_unsafe(dst, u32);
+    }
+
+    /************************************************************************
      * exact_writter_t and its helper
      ***********************************************************************/
 
@@ -353,22 +383,27 @@ namespace kd { namespace detail { namespace binary
         >
         ;
 
+    /* note:
+    "&&" here is not perfect forward, but just a rvalue reference. We use
+    it because exact_writter_t is non-copyable.
+    */
+
     template<typename T, size_t I, size_t N, typename U>
     exact_write_integer_t<T, I, N, U>
-    operator<<(exact_writter_t<T, I, N> ew, U v) noexcept;
+    operator<<(exact_writter_t<T, I, N> && ew, U v) noexcept;
 
     template<typename T, size_t I, size_t N, size_t S>
     exact_write_size_t<T, I, N, S - 1>
-    operator<<(exact_writter_t<T, I, N> ew, char const(&v)[S])
+    operator<<(exact_writter_t<T, I, N> && ew, char const(&v)[S])
     noexcept;
 
     template<typename T, size_t I, size_t N>
     exact_write_size_t<T, I, N, sizeof(float)>
-    operator<<(exact_writter_t<T, I, N> ew, float v) noexcept;
+    operator<<(exact_writter_t<T, I, N> && ew, float v) noexcept;
 
     template<typename T, size_t I, size_t N>
     exact_write_size_t<T, I, N, sizeof(double)>
-    operator<<(exact_writter_t<T, I, N> ew, double v) noexcept;
+    operator<<(exact_writter_t<T, I, N> && ew, double v) noexcept;
 
     /* exactly write n bytes and then we could get the result */
     template<typename T, size_t I, size_t N>
@@ -376,25 +411,27 @@ namespace kd { namespace detail { namespace binary
     {
     public:
         /* methods */
-        exact_writter_t(T & buffer) noexcept;
+        inline exact_writter_t(T & buffer) noexcept;
+        inline exact_writter_t            (exact_writter_t const &) = delete;
+        inline exact_writter_t & operator=(exact_writter_t const &) = delete;
 
     public:
         /* friends */
         template<typename T, size_t I, size_t N, typename U> friend
         exact_write_integer_t<T, I, N, U>
-        operator<<(exact_writter_t<T, I, N> w, U v) noexcept;
+        operator<<(exact_writter_t<T, I, N> && w, U v) noexcept;
 
         template<typename T, size_t I, size_t N, size_t S> friend
         exact_write_size_t<T, I, N, S - 1>
-        operator<<(exact_writter_t<T, I, N> w, char const(&v)[S]) noexcept;
+        operator<<(exact_writter_t<T, I, N> && w, char const(&)[S]) noexcept;
 
         template<typename T, size_t I, size_t N> friend
         exact_write_size_t<T, I, N, sizeof(float)>
-        operator<<(exact_writter_t<T, I, N> w, float v) noexcept;
+        operator<<(exact_writter_t<T, I, N> && w, float v) noexcept;
 
         template<typename T, size_t I, size_t N> friend
         exact_write_size_t<T, I, N, sizeof(double)>
-        operator<<(exact_writter_t<T, I, N> w, double v) noexcept;
+        operator<<(exact_writter_t<T, I, N> && w, double v) noexcept;
 
     private:
         T & buffer;
@@ -410,70 +447,56 @@ namespace kd { namespace detail { namespace binary
     struct exact_writter_t<T, N, N>
     {
     public:
-        exact_writter_t(T& buffer) noexcept;
+        inline exact_writter_t(T & buffer) noexcept;
 
     public:
-        inline operator    char const* () const noexcept;
-        inline operator  int8_t const* () const noexcept;
-        inline operator uint8_t const* () const noexcept;
+        inline operator T &() const noexcept;
 
     private:
         T & buffer;
     };
 
     template<typename T, size_t N> inline
-    exact_writter_t<T, N, N>::operator char const* () const noexcept
+    exact_writter_t<T, N, N>::operator T &() const noexcept
     {
-        return nullptr;
-    }
-
-    template<typename T, size_t N> inline
-    exact_writter_t<T, N, N>::operator int8_t const* () const noexcept
-    {
-        return nullptr;
-    }
-
-    template<typename T, size_t N> inline
-    exact_writter_t<T, N, N>::operator uint8_t const* () const noexcept
-    {
-        return nullptr;
+        return buffer;
     }
 
     template<typename T, size_t I, size_t N, typename U> inline
     exact_write_integer_t<T, I, N, U>
-    operator<<(exact_writter_t<T, I, N> ew, U rhs) noexcept
+    operator<<(exact_writter_t<T, I, N> && ew, U rhs) noexcept
     {
-        auto constexpr size = sizeof(U);
+        auto constexpr W = sizeof(U);
         
-        return exact_write_size_t<T, I, N, size>(ew.buffer);
+        return exact_write_size_t<T, I, N, W>(ew.buffer);
     }
 
     template<typename T, size_t I, size_t N, size_t S> inline
     exact_write_size_t<T, I, N, S - 1>
-    operator<<(exact_writter_t<T, I, N> ew, char const(&rhs)[S])
+    operator<<(exact_writter_t<T, I, N> && ew, char const(&rhs)[S])
     noexcept
     {
-        auto constexpr size = S - 1;
+        auto constexpr W = S - 1;
 
-        return exact_write_size_t<T, I, N, size>(ew.buffer);
+        return exact_write_size_t<T, I, N, W>(ew.buffer);
     }
 
     template<typename T, size_t I, size_t N>
     exact_write_size_t<T, I, N, sizeof(float)>
-    operator<<(exact_writter_t<T, I, N> ew, float rhs) noexcept
+    operator<<(exact_writter_t<T, I, N> && ew, float rhs) noexcept
     {
-        auto constexpr size = sizeof(float);
+        auto constexpr W = sizeof(float);
 
-        return exact_write_size_t<T, I, N, size>(ew.buffer);
+        return exact_write_size_t<T, I, N, W>(ew.buffer);
     }
 
     template<typename T, size_t I, size_t N>
     exact_write_size_t<T, I, N, sizeof(double)>
-    operator<<(exact_writter_t<T, I, N> ew, double rhs) noexcept
+    operator<<(exact_writter_t<T, I, N> && ew, double rhs) noexcept
     {
-        auto constexpr size = sizeof(double);
+        auto constexpr W = sizeof(double);
 
-        return exact_write_size_t<T, I, N, size>(ew.buffer);
+        return exact_write_size_t<T, I, N, W>(ew.buffer);
     }
 
-}}}
+}}

@@ -122,17 +122,24 @@ TEST_CASE("foobar")
 TEST_CASE("binary::exact_writter_t")
 {
     using kd::detail::binary::exact_writter_t;
+    using array_t = uint8_t[8];
 
-    auto bu = 1;
-    auto ex = exact_writter_t<int, 0, 8>(bu);
+    array_t u8 = {};
+    auto ew = exact_writter_t<array_t, 0, 8>(u8)
+        << uint16_t(123)
+        << uint32_t(123)
+        << uint16_t(123)
+        ;
 
-    auto a = ex
+    auto a = exact_writter_t<array_t, 0, 8>(u8)
         << uint32_t(123)
         ;
 
-    auto b = a
-        << uint32_t(123)
+    auto l = std::move(a)
+        << uint16_t(123)
+        << uint16_t(123)
         ;
-
-    auto p = static_cast<const uint8_t *>(b);
+    
+    auto &i = ew;
+    auto p = static_cast<const uint8_t *>(i);
 }
