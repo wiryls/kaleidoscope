@@ -55,41 +55,41 @@ TEST_CASE("foo")
 	//kd::save("sample.bmp", mat);
 }
 
-TEST_CASE("progressbar")
+TEST_CASE("percentage bar")
 {
-	//auto w = 512;
-	//auto h = 10;
-	//auto l = static_cast<float>(h / 2);
-	//auto r = static_cast<float>(w - l);
-	//auto y = static_cast<float>(h / 2);
+	auto w = 416;
+	auto h = 10;
+	auto l = static_cast<float>(h / 2);
+	auto r = static_cast<float>(w - l);
+	auto y = static_cast<float>(h / 2);
 
-	//for (auto i = 0; i <= 100; i++)
-	//{
-	//	auto m = kd::matrix<kd::scalar<float, kd::RGBA>>(w, h);
-	//	kd::detail::graphic::line
-	//	( m
-	//	, kd::vec2<float>{l, y}
-	//	, kd::vec2<float>{r, y}
-	//	, h - 2
-	//	, kd::scalar<uint8_t, kd::RGBA>{190, 190, 190, 255}
-	//	);
+	for (auto i = 0; i <= 100; i++)
+	{
+		auto m = kd::matrix<kd::scalar<float, kd::RGBA>>(w, h);
+		kd::detail::graphic::line
+		( m
+		, kd::vec2<float>{l, y}
+		, kd::vec2<float>{r, y}
+		, h - 6
+		, kd::scalar<uint8_t, kd::RGBA>{216, 216, 216, 255}
+		);
 
-	//	if (i != 0)
-	//	{
-	//		auto u = l + (r - l) * static_cast<float>(i - 1) / 99.f;
-	//		kd::detail::graphic::line
-	//		( m
-	//		, kd::vec2<float>{l, y}
-	//		, kd::vec2<float>{u, y}
-	//		, h - 2
-	//		, kd::scalar<uint8_t, kd::RGBA>{100, 100, 100, 255}
-	//		);
-	//	}
+		if (i != 0)
+		{
+			auto u = l + (r - l) * static_cast<float>(i - 1) / 99.f;
+			kd::detail::graphic::line
+			( m
+			, kd::vec2<float>{l, y}
+			, kd::vec2<float>{u, y}
+			, h - 6
+			, kd::scalar<uint8_t, kd::RGBA>{0, 84, 72, 255}
+			);
+		}
 
-	//	auto o = std::ostringstream();
-	//	o << "line\\" << std::setfill('0') << std::setw(3) << i << ".bmp";
-	//	kd::save(o.str().c_str(), m);
-	//}
+		auto o = std::ostringstream();
+		o << "line\\percentagebar-" << std::setfill('0') << std::setw(3) << i << ".bmp";
+		//kd::save(o.str().c_str(), m);
+	}
 }
 
 TEST_CASE("sample")
@@ -111,17 +111,12 @@ TEST_CASE("sample")
 
 TEST_CASE("foobar")
 {
-	auto buffer = std::make_unique<uint8_t[]>(8);
-
-	kd::detail::binary::write(buffer.get(), "IHDR");
-
-	for (auto i = 0; i < 8; i++)
-		std::cout << std::hex << int(buffer.get()[i]) << std::endl;
+	
 }
 
 TEST_CASE("binary::exact_writter_t")
 {
-    using kd::detail::binary::exact_writter_t;
+    using kd::detail::exact_writter_t;
     using array_t = uint8_t[8];
 
     array_t u8 = {};
@@ -141,5 +136,5 @@ TEST_CASE("binary::exact_writter_t")
         ;
     
     auto &i = ew;
-    auto p = static_cast<const uint8_t *>(i);
+    auto p = static_cast<array_t &>(i);
 }

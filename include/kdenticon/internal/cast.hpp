@@ -20,7 +20,7 @@ namespace kd { namespace detail
 
     template<typename T, typename U>
     constexpr bool is_same_sign_v =
-        (std::is_signed  <T>::value && std::is_signed  <U>::value) ||
+        (std::is_signed  <T>::value && std::is_signed  <U>::value) !=
         (std::is_unsigned<T>::value && std::is_unsigned<U>::value)
         ;
 

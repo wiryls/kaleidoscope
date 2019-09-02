@@ -385,7 +385,7 @@ namespace kd { namespace detail
 
     /* note:
     "&&" here is not perfect forward, but just a rvalue reference. We use
-    it because exact_writter_t is non-copyable.
+    it because exact_writter_t is non-copyable and movable.
     */
 
     template<typename T, size_t I, size_t N, typename U>
@@ -411,9 +411,11 @@ namespace kd { namespace detail
     {
     public:
         /* methods */
-        inline exact_writter_t(T & buffer) noexcept;
-        inline exact_writter_t            (exact_writter_t const &) = delete;
-        inline exact_writter_t & operator=(exact_writter_t const &) = delete;
+        exact_writter_t(T & buffer) noexcept;
+        exact_writter_t            (exact_writter_t &&     ) = default;
+        exact_writter_t            (exact_writter_t const &) = delete;
+        exact_writter_t & operator=(exact_writter_t &&     ) = delete;
+        exact_writter_t & operator=(exact_writter_t const &) = delete;
 
     public:
         /* friends */
@@ -447,17 +449,33 @@ namespace kd { namespace detail
     struct exact_writter_t<T, N, N>
     {
     public:
-        inline exact_writter_t(T & buffer) noexcept;
+        exact_writter_t(T & buffer) noexcept;
+        exact_writter_t            (exact_writter_t &&     ) = default;
+        exact_writter_t            (exact_writter_t const &) = default;
+        exact_writter_t & operator=(exact_writter_t &&     ) = delete;
+        exact_writter_t & operator=(exact_writter_t const &) = delete;
 
     public:
-        inline operator T &() const noexcept;
+        inline operator T       &()       noexcept;
+        inline operator T const &() const noexcept;
 
     private:
         T & buffer;
     };
 
     template<typename T, size_t N> inline
-    exact_writter_t<T, N, N>::operator T &() const noexcept
+    exact_writter_t<T, N, N>::exact_writter_t(T & buffer) noexcept
+        : buffer(buffer)
+    {}
+
+    template<typename T, size_t N> inline
+    exact_writter_t<T, N, N>::operator T &() noexcept
+    {
+        return buffer;
+    }
+
+    template<typename T, size_t N> inline
+    exact_writter_t<T, N, N>::operator T const &() const noexcept
     {
         return buffer;
     }
@@ -467,8 +485,8 @@ namespace kd { namespace detail
     operator<<(exact_writter_t<T, I, N> && ew, U rhs) noexcept
     {
         auto constexpr W = sizeof(U);
-        
-        return exact_write_size_t<T, I, N, W>(ew.buffer);
+
+        return exact_write_integer_t<T, I, N, U>(ew.buffer);
     }
 
     template<typename T, size_t I, size_t N, size_t S> inline
