@@ -1,14 +1,6 @@
-#include <iostream>
+#include <cmath>
+#include <sstream>
 #include <iomanip>
-#include <type_traits>
-#include <cstring>
-#include <memory>
-#include <vector>
-#include <array>
-#include <utility>
-#include <tuple>
-#include <functional>
-#include <cassert>
 
 #include <catch/catch.hpp>
 #include <kdenticon/kdenticon.hpp>
@@ -19,43 +11,7 @@
 #include <kdenticon/internal/archive.hpp>
 #include <kdenticon/internal/graphic.hpp>
 
-// archive << pattern << shape << hash << text
-
-TEST_CASE("foo")
-{
-	//auto mat = kd::matrix<kd::scalar<float, kd::RGBA>>(1024, 1024);
-	//auto w = static_cast<float>(mat. width());
-	//auto h = static_cast<float>(mat.height());
-	//
-	//float cx = w * 0.5f, cy = h * 0.5f;
-	//for (int j = 0; j < 5; j++) {
-	//    float r1 = fminf(w, h) * (j + 0.5f) * 0.085f;
-	//    float r2 = fminf(w, h) * (j + 1.5f) * 0.085f;
-	//    float t = j * 3.14159f / 64.0f, r = (j + 1) * 1.f;
-	//    for (int i = 1; i <= 64; i++, t += 2.0f * 3.14159f / 64.0f) {
-	//        float ct = cosf(t), st = sinf(t);
-	//        kd::detail::graphic::line
-	//        ( mat
-	//        , kd::vec<float>{cx + r1 * ct, cy - r1 * st}
-	//        , kd::vec<float>{cx + r2 * ct, cy - r2 * st}
-	//        , r
-	//        , kd::scalar<float, kd::RGBA>{0, 0, 0, 1}
-	//        );
-	//    }
-	//}
-
-	//kd::detail::graphic::line
-	//( mat
-	//, kd::vec<int>{0, 0}
-	//, kd::vec<int>{1024, 1024}
-	//, 64
-	//, kd::scalar<float, kd::RGBA>{0.4f, 0.5f, 0.6f, 0.8f}
-	//);
-
-	//kd::save("sample.bmp", mat);
-}
-
-TEST_CASE("percentage bar")
+TEST_CASE("sample percentage bar")
 {
 	auto w = 416;
 	auto h = 10;
@@ -87,12 +43,46 @@ TEST_CASE("percentage bar")
 		}
 
 		auto o = std::ostringstream();
-		o << "line\\percentagebar-" << std::setfill('0') << std::setw(3) << i << ".bmp";
-		//kd::save(o.str().c_str(), m);
+		o << "line\\teams-percentagebar-green-" << std::setfill('0') << std::setw(3) << i << ".bmp";
+        REQUIRE(kd::save(o.str().c_str(), m) == kd::save_result::ok);
 	}
 }
 
-TEST_CASE("sample")
+TEST_CASE("archive::save")
+{
+	auto mat = kd::matrix<kd::scalar<float, kd::RGBA>>(1024, 1024);
+	auto w = static_cast<float>(mat. width());
+	auto h = static_cast<float>(mat.height());
+	
+	float cx = w * 0.5f, cy = h * 0.5f;
+	for (int j = 0; j < 5; j++) {
+	    float r1 = fminf(w, h) * (j + 0.5f) * 0.085f;
+	    float r2 = fminf(w, h) * (j + 1.5f) * 0.085f;
+	    float t = j * 3.14159f / 64.0f, r = (j + 1) * 1.f;
+	    for (int i = 1; i <= 64; i++, t += 2.0f * 3.14159f / 64.0f) {
+	        float ct = cosf(t), st = sinf(t);
+	        kd::detail::graphic::line
+	        ( mat
+	        , kd::vec<float>{cx + r1 * ct, cy - r1 * st}
+	        , kd::vec<float>{cx + r2 * ct, cy - r2 * st}
+	        , r
+	        , kd::scalar<float, kd::RGBA>{0, 0, 0, 1}
+	        );
+	    }
+	}
+
+	kd::detail::graphic::line
+	( mat
+	, kd::vec<int>{0, 0}
+	, kd::vec<int>{1024, 1024}
+	, 64
+	, kd::scalar<float, kd::RGBA>{0.4f, 0.5f, 0.6f, 0.8f}
+	);
+
+    //REQUIRE(kd::save("sample.lines.bmp", mat) == kd::save_result::ok);
+}
+
+TEST_CASE("bresenham")
 {
 	auto mat = kd::matrix<kd::scalar<float, kd::RGBA>>(1024, 1024);
 	auto w = static_cast<float>(mat. width());
@@ -106,12 +96,7 @@ TEST_CASE("sample")
 	, kd::scalar<float, kd::RGBA>{0.4f, 0.5f, 0.6f, 0.8f}
 	);
 
-	//REQUIRE(kd::save("sample.bmp", mat) == kd::save_result::ok);
-}
-
-TEST_CASE("foobar")
-{
-	
+	//REQUIRE(kd::save("sample.bresenham.bmp", mat) == kd::save_result::ok);
 }
 
 TEST_CASE("binary::exact_writter_t")
