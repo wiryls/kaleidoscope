@@ -1,4 +1,5 @@
-#include <catch/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
+
 #include <kdenticon/internal/matrix_trait.hpp>
 #include <kdenticon/internal/matrix.hpp>
 
@@ -74,8 +75,8 @@ namespace test
         int m[2][2];
     };
 
-    auto  width(mat2x2 const & m) { return 2; }
-    auto height(mat2x2 const & m) { return 2; }
+    auto  width(mat2x2 const &) { return 2; }
+    auto height(mat2x2 const &) { return 2; }
     auto & at(mat2x2       & m, size_t x, size_t y) { return m.m[y][x]; }
     auto & at(mat2x2 const & m, size_t x, size_t y) { return m.m[y][x]; }
 

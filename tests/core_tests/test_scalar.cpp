@@ -1,6 +1,7 @@
 #include <array>
 
-#include <catch/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
+
 #include <kdenticon/internal/scalar_trait.hpp>
 #include <kdenticon/internal/scalar.hpp>
 

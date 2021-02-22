@@ -3,7 +3,8 @@
 #include <vector>
 #include <tuple>
 
-#include <catch/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
+
 #include <kdenticon/internal/geometry.hpp>
 #include <kdenticon/internal/graphic.hpp>
 

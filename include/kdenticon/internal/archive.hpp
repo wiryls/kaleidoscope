@@ -300,7 +300,7 @@ namespace kd { namespace detail
 
     template<typename T> inline
     std::enable_if_t<std::is_arithmetic_v<T>, uint8_t *>
-    write_byte_unsafe(uint8_t* dst, T src) noexcept
+    write_byte_unsafe(uint8_t * dst, T src) noexcept
     {
         auto cnt = sizeof(T);
         while (cnt-- > 0) {
@@ -407,7 +407,7 @@ namespace kd { namespace detail
 
     /* exactly write n bytes and then we could get the result */
     template<typename T, size_t I, size_t N>
-    struct exact_writter_t
+    struct exact_writter_t : detail::static_array_trait<T>::type
     {
     public:
         /* methods */
@@ -436,6 +436,10 @@ namespace kd { namespace detail
         operator<<(exact_writter_t<T, I, N> && w, double v) noexcept;
 
     private:
+        using trait = detail::static_array_trait<T>;
+        static_assert(N <= trait::size, "buffer size is not enough");
+
+    private:
         T & buffer;
     };
 
@@ -446,7 +450,7 @@ namespace kd { namespace detail
 
     /* writter is full and become readonly */
     template<typename T, size_t N>
-    struct exact_writter_t<T, N, N>
+    struct exact_writter_t<T, N, N> : detail::static_array_trait<T>::type
     {
     public:
         exact_writter_t(T & buffer) noexcept;
@@ -458,6 +462,10 @@ namespace kd { namespace detail
     public:
         inline operator T       &()       noexcept;
         inline operator T const &() const noexcept;
+
+    private:
+        using trait = detail::static_array_trait<T>;
+        static_assert(N <= trait::size, "buffer size is not enough");
 
     private:
         T & buffer;
@@ -485,7 +493,7 @@ namespace kd { namespace detail
     operator<<(exact_writter_t<T, I, N> && ew, U rhs) noexcept
     {
         auto constexpr W = sizeof(U);
-
+        ew.buffer[I] = rhs;
         return exact_write_integer_t<T, I, N, U>(ew.buffer);
     }
 
@@ -495,7 +503,8 @@ namespace kd { namespace detail
     noexcept
     {
         auto constexpr W = S - 1;
-
+        for (auto i = I; i < S; ++i)
+            ew.buffer[i] = rhs[i - I];
         return exact_write_size_t<T, I, N, W>(ew.buffer);
     }
 
