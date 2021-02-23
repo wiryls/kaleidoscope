@@ -1,3 +1,4 @@
+#[[ requirement ]]
 cmake_minimum_required(VERSION 3.14)                # require 3.14 for FetchContent_MakeAvailable
 enable_testing()                                    # settings for tests
 set_property(GLOBAL PROPERTY CTEST_TARGETS_ADDED 1) # prevent CTest added targets
@@ -5,7 +6,9 @@ set_property(GLOBAL PROPERTY CTEST_TARGETS_ADDED 1) # prevent CTest added target
 include(FetchContent)
 set(FETCHCONTENT_QUIET ON)
 
-# dependencies
+#[[ dependencies ]]
+
+# Catch2 for unit tests
 FetchContent_Declare(
   Catch2
   GIT_REPOSITORY https://github.com/catchorg/Catch2.git
@@ -15,7 +18,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 set_target_properties     (Catch2 Catch2WithMain PROPERTIES FOLDER "third_party/tests")
 
-# subprojects
+#[[ subprojects ]]
 # shared settings for subprojects
 add_compile_options(
     "$<$<CXX_COMPILER_ID:MSVC>:/WX;/W4;/utf-8>"
