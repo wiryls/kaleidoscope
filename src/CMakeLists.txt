@@ -1,10 +1,8 @@
 # set the target name
 set(name "kdenticon")
 
-# collect all header files
+# collect all header files and source files
 file(GLOB_RECURSE headers CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/include/*.hpp")
-
-# collect all source files
 set(sources "")
 
 # build as a library
