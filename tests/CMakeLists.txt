@@ -20,7 +20,10 @@ FetchContent_Declare(
 
 # enable all dependencies
 FetchContent_MakeAvailable(Catch2)
-set_target_properties     (Catch2 Catch2WithMain PROPERTIES FOLDER "third_party/tests")
+
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    set_target_properties     (Catch2 Catch2WithMain PROPERTIES FOLDER "third_party/tests")
+endif()
 
 #############################################################################
 # subprojects

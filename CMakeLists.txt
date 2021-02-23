@@ -13,10 +13,8 @@ option(KDENTICON_BUILD_TESTS    "build all test programs"   ON)
 option(KDENTICON_BUILD_EXAMPLES "build all sample programs" ON)
 
 # set global properties or options
-if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-    set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-    set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "")
-endif()
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "")
 
 # add their and our libraries
 add_subdirectory(third_party)

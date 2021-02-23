@@ -10,8 +10,8 @@ set(FETCHCONTENT_QUIET OFF)
 # helper
 # this part is used to collect all third party targets
 # https://stackoverflow.com/a/25785856
-set(third_party_targets "" CACHE INTERNAL "third party target list")
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    set(third_party_targets "" CACHE INTERNAL "third party target list")
     function(add_library name)
         _add_library(${name} ${ARGN})
         remember_target(${name})
@@ -38,4 +38,8 @@ endif()
 
 # populate
 FetchContent_MakeAvailable()
-set_target_properties     (${third_party_targets} PROPERTIES FOLDER "third_party")
+
+# ide friendly
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    set_target_properties(${third_party_targets} PROPERTIES FOLDER "third_party")
+endif()

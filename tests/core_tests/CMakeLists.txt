@@ -13,9 +13,11 @@ set(sources
 
 # executable
 add_executable         (${name} ${sources})
-set_target_properties  (${name} PROPERTIES FOLDER "${PROJECT_NAME}/tests")
 target_link_libraries  (${name} PRIVATE Catch2::Catch2WithMain kdenticon)
 target_compile_features(${name} PRIVATE cxx_std_17)
 
-# add for CTest
-add_test(NAME ${name} COMMAND ${name})
+# add for CTest and ide friendly
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    add_test             (NAME ${name} COMMAND ${name})
+    set_target_properties(${name} PROPERTIES FOLDER "${PROJECT_NAME}/tests")
+endif()
