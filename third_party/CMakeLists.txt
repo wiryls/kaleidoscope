@@ -1,8 +1,7 @@
-# require 3.11 for FetchContent and 3.14 for FetchContent_MakeAvailable
-# see: https://cmake.org/cmake/help/latest/module/FetchContent.html
-cmake_minimum_required(VERSION 3.14)
-include(FetchContent)
-set(FETCHCONTENT_QUIET OFF)
+
+cmake_minimum_required(VERSION 3.14) # require 3.14 for FetchContent_MakeAvailable
+include(FetchContent)                # see: https://cmake.org/cmake/help/latest/module/FetchContent.html
+set(FETCHCONTENT_QUIET OFF)          # for debug
 
 # third party libraries
 #
