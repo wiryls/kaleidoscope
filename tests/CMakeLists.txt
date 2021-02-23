@@ -22,7 +22,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-    set_target_properties     (Catch2 Catch2WithMain PROPERTIES FOLDER "third_party/tests")
+    set_target_properties(Catch2 Catch2WithMain PROPERTIES FOLDER "third_party/tests")
 endif()
 
 #############################################################################

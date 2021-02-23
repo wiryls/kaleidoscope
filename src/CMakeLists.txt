@@ -9,6 +9,7 @@ set(sources "")
 add_library(${name} INTERFACE ${sources} ${headers})
 
 # target options
+source_group              (TREE "${PROJECT_SOURCE_DIR}" FILES ${sources} ${headers})
 target_include_directories(${name} INTERFACE "${PROJECT_SOURCE_DIR}/include")
 target_link_libraries     (${name} INTERFACE "")
 target_compile_features   (${name} INTERFACE cxx_std_17)
@@ -19,5 +20,4 @@ target_compile_options    (${name} INTERFACE
 # ide friendly
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     set_target_properties(${name} PROPERTIES FOLDER "${PROJECT_NAME}")
-    source_group         (TREE "${PROJECT_SOURCE_DIR}" FILES ${sources} ${headers})
 endif()
