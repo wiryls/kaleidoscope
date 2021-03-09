@@ -12,10 +12,10 @@ set(sources
     test_scalar.cpp)
 
 # executable
-add_executable         (${name} ${sources})
-set_target_properties  (${name} PROPERTIES FOLDER "${PROJECT_NAME}/tests")
-target_link_libraries  (${name} PRIVATE Catch2::Catch2WithMain kdenticon)
-target_compile_features(${name} PRIVATE cxx_std_17)
+add_executable       (${name} ${sources})
+set_target_properties(${name} PROPERTIES FOLDER "${PROJECT_NAME}/tests")
+set_target_properties(${name} PROPERTIES CXX_STANDARD 17)
+target_link_libraries(${name} PRIVATE Catch2::Catch2WithMain kdenticon)
 
 # add for CTest
 add_test(NAME ${name} COMMAND ${name})

@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.14...3.19)
 
 # project infomation
 project(kdenticon
-    VERSION 0.1
+    VERSION 0.0.1
     DESCRIPTION "Yet an unfinished identicon generator"
     LANGUAGES CXX
 )
