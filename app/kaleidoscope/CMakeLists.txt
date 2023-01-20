@@ -5,7 +5,7 @@ string(TOLOWER ${name} name)
 
 # collect source
 set(source main.cc)
-set(header)
+set(header tool.h model.h viewmodel.h)
 
 # executable
 add_executable        (${name} ${source} ${header} ${BACKWARD_ENABLE})

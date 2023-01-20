@@ -1,22 +1,15 @@
 #include <cstdint>
 #include <cmath>
-#include <concepts>
-#include <type_traits>
-#include <algorithm>
 #include <system_error>
+#include <string>
 
 #include <windows.h>
+#include <windowsx.h>
 #undef min
 #undef max
 
-namespace aux
-{
-    template<typename T, typename U>
-    auto inline operator >>(T && value, U && handle) -> std::invoke_result_t<U, T>
-    {
-        return std::forward<U>(handle)(std::forward<T>(value));
-    }
-}
+#include "tool.h"
+#include "viewmodel.h"
 
 namespace must
 {
@@ -28,31 +21,136 @@ namespace must
             auto desc = std::system_category().message(code);
             ::OutputDebugString(desc.c_str());
             throw std::system_error(code, std::system_category());
+
+            // NOTE: to use OutputDebugString in our cmake target
+            // add the following env to "launch.vs.json" file
+            // ```json
+            // "env": {
+            //     "DEBUG_LOGGING_LEVEL": "trace;info",
+            //     "ENABLE_TRACING" : "true"
+            // }
+            // ```
+            // see: https://learn.microsoft.com/en-us/cpp/build/configure-cmake-debugging-sessions?view=msvc-170#launchvsjson-reference
         }
         return std::forward<decltype(value)>(value);
     };
 }
 
-namespace model
+auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) -> LRESULT
 {
-    class tile
+    // preparation
+    using namespace ::aux;
+    using state_type = viewmodel::state<LONG>;
+    using state_pointer = state_type *;
+
+    // life-time related message
+    auto userdata = state_pointer{};
+    switch (umsg)
     {
-    public:
-        tile(std::integral auto screen_width, std::integral auto screen_height)
-            : tile(static_cast<std::int32_t>(screen_width), static_cast<std::int32_t>(screen_height))
-        {}
+    case WM_CREATE:
+    {
+        auto param = reinterpret_cast<CREATESTRUCT *>(lparam);
+        auto state = reinterpret_cast<state_pointer>(param->lpCreateParams);
+        ::SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
+        return 0;
+    }
+    case WM_CLOSE:
+    {
+        ::DestroyWindow(hwnd) >> must::nonzero;
+        return 0;
+    }
+    case WM_DESTROY:
+    {
+        ::PostQuitMessage(0);
+        return 0;
+    }}
 
-        tile(std::int32_t screen_width, std::int32_t screen_height)
-            : top{screen_width / 2}
-            , left{screen_height / 2}
-            , length{std::min(top, static_cast<std::int32_t>(static_cast<double>(screen_height) / std::sqrt(3.)))}
-        {}
+    // ignore if not ready
+    if (userdata = reinterpret_cast<state_pointer>(::GetWindowLongPtr(hwnd, GWLP_USERDATA)); userdata == nullptr)
+    {
+        return ::DefWindowProc(hwnd, umsg, wparam, lparam);
+    }
 
-    private:
-        std::int32_t top;
-        std::int32_t left;
-        std::int32_t length;
-    };
+    // event related message
+    switch (auto & state = *userdata; umsg)
+    {
+    case WM_MOUSEWHEEL:
+    {
+        auto & v = state.viewport_vertices();
+        auto rect = RECT{v[2][0], v[0][1], v[1][0], v[1][1]};
+
+        auto delta = GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
+        auto d = std::to_string(delta) + '\n';
+        OutputDebugString(d.c_str());
+        state.on_length_changed(delta);
+
+        ::InvalidateRect(hwnd, &rect, true /* send WM_ERASEBKGND */);
+        return 0;
+    }
+    case WM_LBUTTONDOWN:
+    {
+        auto x = GET_X_LPARAM(lparam);
+        auto y = GET_Y_LPARAM(lparam);
+        state.on_start_moving(x, y);
+
+        ::SetCapture(hwnd); // support moving outside our window
+        return 0;
+    }
+    case WM_MOUSEMOVE:
+    {
+        if (state.is_moving())
+        {
+            auto & v = state.viewport_vertices();
+            auto rect = RECT{v[2][0], v[0][1], v[1][0], v[1][1]};
+
+            auto x = GET_X_LPARAM(lparam);
+            auto y = GET_Y_LPARAM(lparam);
+            state.on_moving(x, y);
+
+            ::InvalidateRect(hwnd, &rect, true);
+        }
+        return 0;
+    }
+    case WM_LBUTTONUP:
+    {
+        state.on_stop_moving();
+
+        ::ReleaseCapture();
+        return 0;
+    }
+    case WM_KEYDOWN: // handle keyboard input
+    {
+        switch (wparam)
+        {
+        case VK_ESCAPE:
+        {
+            ::DestroyWindow(hwnd);
+            break;
+        }}
+        return 0;
+    }
+    case WM_PAINT: // paint
+    {
+        // prepare a triangle
+        auto & positions = state.viewport_vertices();
+        auto vertices = std::array<POINT, 3>{};
+        static_assert(sizeof positions == sizeof vertices);
+        std::memcpy(vertices.data(), positions.data(), sizeof(vertices));
+
+        // prepare to repaint
+        auto ps = PAINTSTRUCT{};
+        auto hdc = ::BeginPaint(hwnd, &ps);
+
+        ::SetDCBrushColor(hdc, RGB(255, 255, 255));
+        ::Polygon(hdc, vertices.data(), static_cast<int>(vertices.size()));
+
+        ::EndPaint(hwnd, &ps);
+        return 0;
+    }
+    default:
+    {
+        return ::DefWindowProc(hwnd, umsg, wparam, lparam);
+    }}
 }
 
 auto wWinMain(
@@ -68,56 +166,18 @@ auto wWinMain(
     // prepare some declarations
     using namespace ::aux;
 
+    // create the state
+    auto state = viewmodel::state<LONG>();
+
     // create a window class
     // - https://learn.microsoft.com/en-us/windows/win32/learnwin32/learn-to-program-for-windows
     auto clazz = WNDCLASS{};
     clazz.hInstance = instance;
     clazz.hIcon = ::LoadIcon(nullptr, IDI_WINLOGO);
     clazz.hCursor = ::LoadCursor(nullptr, IDC_ARROW);
+    clazz.hbrBackground = static_cast<HBRUSH>(::GetStockObject(BLACK_BRUSH)); // handle WM_ERASEBKGND with black
     clazz.lpszClassName = class_name;
-    clazz.lpfnWndProc = +[](HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) -> LRESULT
-    {
-        switch (umsg)
-        {
-        case WM_KEYDOWN:
-            switch (wparam)
-            {
-            case VK_ESCAPE:
-                ::DestroyWindow(hwnd);
-                break;
-            }
-            break;
-
-        case WM_ERASEBKGND:
-        {
-            auto ps = PAINTSTRUCT{};
-            auto rc = RECT{};
-            auto hdc = ::BeginPaint(hwnd, &ps); // experiment
-            GetClientRect(hwnd, &rc);
-            SetDCBrushColor(hdc, RGB(0, 0, 0));
-            FillRect(hdc, &rc, (HBRUSH)GetStockObject(DC_BRUSH));
-
-            rc.left = 1000;
-            rc.right = 1200;
-            rc.top = 100;
-            rc.bottom = 200;
-            SetDCBrushColor(hdc, RGB(255, 255, 255));
-            FillRect(hdc, &rc, (HBRUSH)GetStockObject(DC_BRUSH));
-
-            ::EndPaint(hwnd, &ps);
-            break;
-        }
-        case WM_CLOSE:
-            ::DestroyWindow(hwnd);
-            break;
-
-        case WM_DESTROY:
-            ::PostQuitMessage(0);
-            return {};
-        }
-
-        return ::DefWindowProc(hwnd, umsg, wparam, lparam);
-    };
+    clazz.lpfnWndProc = main_window_message_handler;
     ::RegisterClass(&clazz);
 
     // create the window
@@ -133,21 +193,23 @@ auto wWinMain(
         nullptr, // no parent window
         nullptr, // no menu
         clazz.hInstance,
-        nullptr /* TODO */) >> must::nonzero;
+        &state) >> must::nonzero;
 
     // enable fullscreen mode
     // - https://stackoverflow.com/q/2382464
-    auto monitor_info = ::MONITORINFO{ /* cbSize */ sizeof(::MONITORINFO)};
-    ::GetMonitorInfo(::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor_info) >> must::nonzero;
     ::SetWindowLongPtr(window, GWL_STYLE, WS_OVERLAPPEDWINDOW & ~(WS_CAPTION | WS_THICKFRAME)) >> must::nonzero;
     auto extended_style = ::GetWindowLongPtr(window, GWL_EXSTYLE);
     auto disabled_style = WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE;
     ::SetWindowLongPtr(window, GWL_EXSTYLE, extended_style & ~disabled_style) >> must::nonzero;
-    auto left = monitor_info.rcMonitor.left;
-    auto top = monitor_info.rcMonitor.top;
-    auto width = monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
-    auto height = monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
-    ::SetWindowPos(window, 0, left, top, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED) >> must::nonzero;
+
+    auto monitor_info = ::MONITORINFO{ /* cbSize */ sizeof(::MONITORINFO)};
+    ::GetMonitorInfo(::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor_info) >> must::nonzero;
+    auto monitor_left = monitor_info.rcMonitor.left;
+    auto monitor_top = monitor_info.rcMonitor.top;
+    auto monitor_width = monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
+    auto monitor_height = monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
+    ::SetWindowPos(window, 0, monitor_left, monitor_top, monitor_width, monitor_height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED) >> must::nonzero;
+    state.update_monitor_size(monitor_width, monitor_height);
 
     // allow to click through
     // - https://stackoverflow.com/a/1524047
