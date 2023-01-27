@@ -93,15 +93,17 @@ namespace model
         }
 
     private:
-        // environment
+        // constants
+        double sqrt3{std::sqrt(3)};
+
+        // properties
         double screen_width{};
         double screen_height{};
-        double sqrt3{std::sqrt(3)};
-        // properties
         double top_x{};
         double top_y{};
         double length{};
-        // output buffer
+
+        // targets / output
         vertices points{};
     };
 }

@@ -80,8 +80,6 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
         auto rect = RECT{v[2][0], v[0][1], v[1][0], v[1][1]};
 
         auto delta = GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
-        auto d = std::to_string(delta) + '\n';
-        OutputDebugString(d.c_str());
         state.on_length_changed(delta);
 
         ::InvalidateRect(hwnd, &rect, true /* send WM_ERASEBKGND */);
@@ -161,7 +159,7 @@ auto wWinMain(
 {
     // define some variables
     auto static constexpr title = TEXT("Kaleidoscope");
-    auto static constexpr class_name = TEXT("kaleidoscope");
+    auto static constexpr class_name = TEXT("kaleidoscope window");
 
     // prepare some declarations
     using namespace ::aux;

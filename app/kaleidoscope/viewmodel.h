@@ -56,16 +56,16 @@ namespace viewmodel
             };
 
             auto factor = accelerate.back().second;
-            if (auto now = std::chrono::steady_clock::now(); now - last_time_zooming > threshold)
+            if (auto now = std::chrono::steady_clock::now(); now - zooming_previous > threshold)
             {
-                last_time_zooming = now;
-                first_time_zooming = now;
+                zooming_previous = now;
+                zooming_beginning = now;
             }
             else
             {
-                last_time_zooming = now;
-                
-                for (auto x = now - first_time_zooming; auto & f : accelerate)
+                zooming_previous = now;
+
+                for (auto x = now - zooming_beginning; auto & f : accelerate)
                 {
                     if (x > f.first)
                     {
@@ -102,7 +102,7 @@ namespace viewmodel
         // states
         bool       is_dragging{};
         point_type relative_position{};
-        timed_type first_time_zooming{std::chrono::steady_clock::now()};
-        timed_type last_time_zooming{first_time_zooming};
+        timed_type zooming_beginning{std::chrono::steady_clock::now()};
+        timed_type zooming_previous{zooming_beginning};
     };
 }
