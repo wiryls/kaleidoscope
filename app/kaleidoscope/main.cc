@@ -3,10 +3,9 @@
 #include <system_error>
 #include <string>
 
+#define NOMINMAX
 #include <windows.h>
 #include <windowsx.h>
-#undef min
-#undef max
 
 #include "tool.h"
 #include "viewmodel.h"
