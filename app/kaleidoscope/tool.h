@@ -9,3 +9,15 @@ namespace aux
         return std::forward<U>(handle)(std::forward<T>(value));
     }
 }
+
+namespace env
+{
+    auto inline constexpr is_debug() -> bool
+    {
+#ifdef _DEBUG
+        return true;
+#else
+        return false;
+#endif
+    }
+}

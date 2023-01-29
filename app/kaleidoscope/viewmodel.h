@@ -65,11 +65,11 @@ namespace viewmodel
             {
                 zooming_previous = now;
 
-                for (auto x = now - zooming_beginning; auto & f : accelerate)
+                for (auto x = now - zooming_beginning; auto && [k, y] : accelerate)
                 {
-                    if (x > f.first)
+                    if (x > k)
                     {
-                        factor = f.second;
+                        factor = y;
                         break;
                     }
                 }

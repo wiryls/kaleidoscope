@@ -14,35 +14,37 @@ namespace must
 {
     auto constexpr nonzero = [](auto && value)
     {
-        if (!static_cast<bool>(value))
-        {
-            auto code = ::GetLastError();
-            auto desc = std::system_category().message(code);
-            ::OutputDebugString(desc.c_str());
-            throw std::system_error(code, std::system_category());
+        if (static_cast<bool>(value))
+            return std::forward<decltype(value)>(value);
 
-            // NOTE: to use OutputDebugString in our cmake target
-            // add the following env to "launch.vs.json" file
-            // ```json
-            // "env": {
-            //     "DEBUG_LOGGING_LEVEL": "trace;info",
-            //     "ENABLE_TRACING" : "true"
-            // }
-            // ```
-            // see: https://learn.microsoft.com/en-us/cpp/build/configure-cmake-debugging-sessions?view=msvc-170#launchvsjson-reference
-        }
-        return std::forward<decltype(value)>(value);
+        auto code = ::GetLastError();
+        auto desc = std::system_category().message(code);
+        ::OutputDebugString(desc.c_str());
+
+        // Note: to use OutputDebugString in our cmake target,
+        // we may need to add the following env to "launch.vs.json" file
+        //
+        // ```json
+        // "env": {
+        //     "DEBUG_LOGGING_LEVEL": "trace;info",
+        //     "ENABLE_TRACING" : "true"
+        // }
+        // ```
+        //
+        // see: https://learn.microsoft.com/en-us/cpp/build/configure-cmake-debugging-sessions?view=msvc-170#launchvsjson-reference
+
+        throw std::system_error(code, std::system_category());
     };
 }
 
 auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) -> LRESULT
 {
-    // preparation
+    // Preparation
     using namespace ::aux;
     using state_type = viewmodel::state<LONG>;
     using state_pointer = state_type *;
 
-    // life-time related message
+    // Life-time related message
     auto userdata = state_pointer{};
     switch (umsg)
     {
@@ -64,13 +66,13 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
         return 0;
     }}
 
-    // ignore if not ready
+    // Ignore if not ready
     if (userdata = reinterpret_cast<state_pointer>(::GetWindowLongPtr(hwnd, GWLP_USERDATA)); userdata == nullptr)
     {
         return ::DefWindowProc(hwnd, umsg, wparam, lparam);
     }
 
-    // event related message
+    // Event related message
     switch (auto & state = *userdata; umsg)
     {
     case WM_MOUSEWHEEL:
@@ -81,7 +83,7 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
         auto delta = GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
         state.on_length_changed(delta);
 
-        ::InvalidateRect(hwnd, &rect, true /* send WM_ERASEBKGND */);
+        ::InvalidateRect(hwnd, &rect, true /* Send WM_ERASEBKGND */);
         return 0;
     }
     case WM_LBUTTONDOWN:
@@ -90,7 +92,7 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
         auto y = GET_Y_LPARAM(lparam);
         state.on_start_moving(x, y);
 
-        ::SetCapture(hwnd); // support moving outside our window
+        ::SetCapture(hwnd); // Support moving outside our window
         return 0;
     }
     case WM_MOUSEMOVE:
@@ -115,7 +117,7 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
         ::ReleaseCapture();
         return 0;
     }
-    case WM_KEYDOWN: // handle keyboard input
+    case WM_KEYDOWN: // Handle keyboard input
     {
         switch (wparam)
         {
@@ -126,15 +128,15 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
         }}
         return 0;
     }
-    case WM_PAINT: // paint
+    case WM_PAINT: // Paint
     {
-        // prepare a triangle
+        // Prepare a triangle
         auto & positions = state.viewport_vertices();
         auto vertices = std::array<POINT, 3>{};
         static_assert(sizeof positions == sizeof vertices);
         std::memcpy(vertices.data(), positions.data(), sizeof(vertices));
 
-        // prepare to repaint
+        // Prepare to repaint
         auto ps = PAINTSTRUCT{};
         auto hdc = ::BeginPaint(hwnd, &ps);
 
@@ -156,28 +158,28 @@ auto wWinMain(
     _In_     PWSTR /* cmd_line */,
     _In_     int show) -> int
 {
-    // define some variables
+    // Define some variables
     auto static constexpr title = TEXT("Kaleidoscope");
     auto static constexpr class_name = TEXT("kaleidoscope window");
 
-    // prepare some declarations
+    // Prepare some declarations
     using namespace ::aux;
 
-    // create the state
+    // Create the state
     auto state = viewmodel::state<LONG>();
 
-    // create a window class
+    // Create a window class
     // - https://learn.microsoft.com/en-us/windows/win32/learnwin32/learn-to-program-for-windows
     auto clazz = WNDCLASS{};
     clazz.hInstance = instance;
     clazz.hIcon = ::LoadIcon(nullptr, IDI_WINLOGO);
     clazz.hCursor = ::LoadCursor(nullptr, IDC_ARROW);
-    clazz.hbrBackground = static_cast<HBRUSH>(::GetStockObject(BLACK_BRUSH)); // handle WM_ERASEBKGND with black
+    clazz.hbrBackground = static_cast<HBRUSH>(::GetStockObject(BLACK_BRUSH)); // Handle WM_ERASEBKGND with black
     clazz.lpszClassName = class_name;
     clazz.lpfnWndProc = main_window_message_handler;
     ::RegisterClass(&clazz);
 
-    // create the window
+    // Create the window
     auto window = CreateWindowEx(
         WS_EX_TOPMOST | WS_EX_LAYERED /* click through */,
         clazz.lpszClassName,
@@ -187,12 +189,12 @@ auto wWinMain(
         CW_USEDEFAULT,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        nullptr, // no parent window
-        nullptr, // no menu
+        nullptr, // No parent window
+        nullptr, // No menu
         clazz.hInstance,
         &state) >> must::nonzero;
 
-    // enable fullscreen mode
+    // Enable fullscreen mode
     // - https://stackoverflow.com/q/2382464
     ::SetWindowLongPtr(window, GWL_STYLE, WS_OVERLAPPEDWINDOW & ~(WS_CAPTION | WS_THICKFRAME)) >> must::nonzero;
     auto extended_style = ::GetWindowLongPtr(window, GWL_EXSTYLE);
@@ -208,22 +210,22 @@ auto wWinMain(
     ::SetWindowPos(window, 0, monitor_left, monitor_top, monitor_width, monitor_height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED) >> must::nonzero;
     state.update_monitor_size(monitor_width, monitor_height);
 
-    // allow to click through
+    // Allow to click through
     // - https://stackoverflow.com/a/1524047
     // - https://www.codeproject.com/Articles/12877/Transparent-Click-Through-Forms
     ::SetLayeredWindowAttributes(window, RGB(255, 255, 255), 0, LWA_COLORKEY) >> must::nonzero;
 
-    // show the main window
+    // Show the main window
     ::ShowWindow(window, show);
 
-    // run the message loop.
+    // Run the message loop.
     for (auto message = MSG{}; ::GetMessage(&message, nullptr, 0, 0) > 0; )
     {
         ::TranslateMessage(&message);
         ::DispatchMessage(&message);
     }
 
-    // cleaning
+    // Cleaning
     ::UnregisterClass(clazz.lpszClassName, clazz.hInstance);
     return 0;
 }

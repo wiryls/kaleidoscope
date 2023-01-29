@@ -7,6 +7,8 @@ string(TOLOWER ${name} name)
 # reference: https://stackoverflow.com/a/71317698
 
 set(shader vertex_shader.hlsl pixel_shader.hlsl)
+source_group("shader" FILES ${shader})
+set_source_files_properties(${shader} PROPERTIES VS_TOOL_OVERRIDE "None")
 set_source_files_properties(vertex_shader.hlsl PROPERTIES shader_type "vs")
 set_source_files_properties(pixel_shader.hlsl  PROPERTIES shader_type "ps")
 
@@ -18,8 +20,8 @@ foreach(file ${shader})
     get_source_file_property(shader_type ${file} shader_type)
     add_custom_command(OUTPUT ${out}
         COMMAND ${dxc} /nologo /Emain /T${shader_type}_6_0 $<IF:$<CONFIG:DEBUG>,/Od,/O3> /Zi /WX /Fh ${out} /Fd ${pdb} /Vn ${file_name} ${file}
-        COMMENT "Compile ${file}"
-        MAIN_DEPENDENCY  ${file}
+        COMMENT "Compiling ${file}"
+        MAIN_DEPENDENCY ${file}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         VERBATIM)
 
