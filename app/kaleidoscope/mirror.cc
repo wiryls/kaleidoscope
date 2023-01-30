@@ -58,11 +58,11 @@ namespace must
 }
 
 // Builder
-namespace build
+namespace create
 {
     using wrl::ComPtr;
 
-    auto static create_d3d12_device(ComPtr<IDXGIFactory4> const & factory, ComPtr<ID3D12Device> & device) -> HRESULT
+    auto static d3d12_device(ComPtr<IDXGIFactory4> const & factory, ComPtr<ID3D12Device> & device) -> HRESULT
     {
         // Create adapter and device
         auto adapter = ComPtr<IDXGIAdapter1>();
@@ -124,7 +124,7 @@ struct core
 
         // Create device from a factory and an (internal created) adapter
         {
-            build::create_d3d12_device(factory, device) >> must::succeed;
+            create::d3d12_device(factory, device) >> must::succeed;
             if constexpr (env::is_debug())
                 device.As(&debug_device) >> must::succeed;
         }
@@ -164,8 +164,8 @@ struct core
             auto height = desc.Height;
             viewport.Width = static_cast<float>(width);
             viewport.Height = static_cast<float>(height);
-            surface_rect.right = static_cast<LONG>(width);
-            surface_rect.bottom = static_cast<LONG>(height);
+            scissor_rect.right = static_cast<LONG>(width);
+            scissor_rect.bottom = static_cast<LONG>(height);
         }
 
         // Create descriptor heap for render target view
@@ -194,7 +194,7 @@ struct core
         }
 
         /////////////////////////////////////////////////////////////////////
-        /// Load resources
+        /// Setup resources
 
         // Create a root signature
         {
@@ -227,29 +227,100 @@ struct core
             auto error = ComPtr<ID3DBlob>();
             D3D12SerializeVersionedRootSignature(&desc, &signature, &error) >> must::succeed_with(*error.Get());
             device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&root_signature)) >> must::succeed;
-            root_signature->SetName(L"kaleidoscope_root_signature");
         }
 
-        // Create UBO
+        // Create pipeline state
         {
-            auto inputElementDescs = std::array<D3D12_INPUT_ELEMENT_DESC, 2>
+            auto input_vertex_layout = std::array<D3D12_INPUT_ELEMENT_DESC, 2>
             {
                 D3D12_INPUT_ELEMENT_DESC
                 {"POS", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
                 {"TEX", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
             };
 
-            // TODO:
+            auto vertex_shader = D3D12_SHADER_BYTECODE{};
+            vertex_shader.pShaderBytecode = compiled_shader::vertex_shader;
+            vertex_shader.BytecodeLength = sizeof(compiled_shader::vertex_shader);
+
+            auto pixel_shader = D3D12_SHADER_BYTECODE{};
+            pixel_shader.pShaderBytecode = compiled_shader::pixel_shader;
+            pixel_shader.BytecodeLength = sizeof(compiled_shader::pixel_shader);
+
+            auto render_target_blend = D3D12_RENDER_TARGET_BLEND_DESC{};
+            render_target_blend.BlendEnable = false;
+            render_target_blend.LogicOpEnable = false;
+            render_target_blend.SrcBlend = D3D12_BLEND_ONE;
+            render_target_blend.DestBlend = D3D12_BLEND_ZERO;
+            render_target_blend.BlendOp = D3D12_BLEND_OP_ADD;
+            render_target_blend.SrcBlendAlpha = D3D12_BLEND_ONE;
+            render_target_blend.DestBlendAlpha = D3D12_BLEND_ZERO;
+            render_target_blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+            render_target_blend.LogicOp = D3D12_LOGIC_OP_NOOP;
+            render_target_blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+            auto blend = D3D12_BLEND_DESC{};
+            blend.AlphaToCoverageEnable = false;
+            blend.IndependentBlendEnable = false;
+            for (auto & target : blend.RenderTarget)
+                target = render_target_blend;
+
+            auto raster = D3D12_RASTERIZER_DESC{};
+            raster.FillMode = D3D12_FILL_MODE_SOLID;
+            raster.CullMode = D3D12_CULL_MODE_NONE;
+            raster.FrontCounterClockwise = false;
+            raster.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
+            raster.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
+            raster.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+            raster.DepthClipEnable = true;
+            raster.MultisampleEnable = false;
+            raster.AntialiasedLineEnable = false;
+            raster.ForcedSampleCount = 0;
+            raster.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+            auto input_layout = D3D12_INPUT_LAYOUT_DESC{};
+            input_layout.pInputElementDescs = input_vertex_layout.data();
+            input_layout.NumElements = static_cast<UINT>(input_vertex_layout.size());
+
+            // About graphics pipeline state:
+            // https://learn.microsoft.com/en-us/windows/win32/direct3d12/managing-graphics-pipeline-state-in-direct3d-12#graphics-pipeline-states-set-with-pipeline-state-objects
+            auto desc = D3D12_GRAPHICS_PIPELINE_STATE_DESC{};
+            desc.pRootSignature = root_signature.Get();
+            desc.VS = vertex_shader;
+            desc.PS = pixel_shader;
+            desc.BlendState = blend;
+            desc.SampleMask = ~UINT{};
+            desc.RasterizerState = raster;
+            desc.DepthStencilState.DepthEnable = false;
+            desc.DepthStencilState.StencilEnable = false;
+            desc.InputLayout = input_layout;
+            desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+            desc.NumRenderTargets = 1;
+            desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+            desc.SampleDesc.Count = 1;
+
+            device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipeline_state)) >> must::succeed;
+        }
+
+        // Create a closed command list
+        {
+            device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, command_allocator.Get(), pipeline_state.Get(), IID_PPV_ARGS(&command_list)) >> must::succeed;
+            command_list->Close() >> must::succeed;
+
+            // If we have "ID3D12Device4", use "CreateCommandList1" to aoivd calling "Close".
+            // https://learn.microsoft.com/en-us/windows/win32/direct3d12/recording-command-lists-and-bundles#creating-command-lists
+        }
+
+        // Create a vertex buffer
+        {
+
         }
 
         // TODO:
 
         /////////////////////////////////////////////////////////////////////
-        /// Others
+        /// Synchronization
 
         frame_index = swap_chain->GetCurrentBackBufferIndex();
-
-        // Create fence
         device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)) >> must::succeed;
     }
 
@@ -258,8 +329,10 @@ struct core
     wrl::ComPtr<ID3D12DebugDevice> debug_device{};
     wrl::ComPtr<ID3D12CommandQueue> command_queue{};
     wrl::ComPtr<ID3D12CommandAllocator> command_allocator{};
+
+    // Render target
     D3D12_VIEWPORT viewport{};
-    D3D12_RECT surface_rect{};
+    D3D12_RECT scissor_rect{};
     wrl::ComPtr<IDXGISwapChain3> swap_chain{};
     wrl::ComPtr<ID3D12DescriptorHeap> render_target_view_heap{};
     std::array<wrl::ComPtr<ID3D12Resource>, 2> render_targets{};
@@ -268,6 +341,10 @@ struct core
     wrl::ComPtr<ID3D12RootSignature> root_signature{};
     wrl::ComPtr<ID3D12PipelineState> pipeline_state{};
     wrl::ComPtr<ID3D12GraphicsCommandList> command_list{};
+
+    wrl::ComPtr<ID3D12Resource> index_buffer{};
+    wrl::ComPtr<ID3D12Resource> vertex_buffer{};
+    wrl::ComPtr<ID3D12Resource> uniform_buffer{};
 
     // Synchronization objects
     UINT frame_index{};
