@@ -12,6 +12,7 @@
 #include <comdef.h>
 
 #include "tool.h"
+#include "mirror.h"
 
 // Run "build" to generate header files.
 //
@@ -58,7 +59,7 @@ namespace must
 }
 
 // Builder
-namespace create
+namespace make
 {
     using wrl::ComPtr;
 
@@ -87,6 +88,63 @@ namespace create
         // https://learn.microsoft.com/en-us/windows/win32/seccrypto/common-hresult-values
         return S_OK;
     }
+
+    auto static viewport_and_scissor_rect(
+        ComPtr<IDXGISwapChain3> const & swap_chain,
+        D3D12_VIEWPORT & viewport,
+        D3D12_RECT & scissor_rect) -> HRESULT
+    {
+        auto desc = DXGI_SWAP_CHAIN_DESC1{};
+        auto hr = swap_chain->GetDesc1(&desc);
+        if (FAILED(hr))
+            return hr;
+
+        auto width = std::max(desc.Width, UINT(1));
+        auto height = std::max(desc.Height, UINT(1));
+        viewport.Width = static_cast<float>(width);
+        viewport.Height = static_cast<float>(height);
+        scissor_rect.right = static_cast<LONG>(width);
+        scissor_rect.bottom = static_cast<LONG>(height);
+
+        return S_OK;
+    }
+
+    auto static render_target_views(
+        ComPtr<ID3D12Device> const & device,
+        ComPtr<IDXGISwapChain3> const & swap_chain,
+        ComPtr<ID3D12DescriptorHeap> & render_target_view_heap, /* out */
+        std::array<ComPtr<ID3D12Resource>, 2> & render_targets  /* out */) -> HRESULT
+    {
+        // Refer to:
+        // https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-descriptor-heaps
+
+        // Create a descriptor heap for render target views
+        auto desc = D3D12_DESCRIPTOR_HEAP_DESC{};
+        desc.NumDescriptors = static_cast<UINT>(render_targets.size());
+        desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        auto hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&render_target_view_heap));
+        if (FAILED(hr))
+            return hr;
+
+        // Create two render target views for swap chain
+        auto offset = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        auto handle = render_target_view_heap->GetCPUDescriptorHandleForHeapStart();
+        for (auto index = UINT{}; auto & target : render_targets)
+        {
+            hr = swap_chain->GetBuffer(index, IID_PPV_ARGS(&target));
+            if (FAILED(hr))
+                return hr;
+
+            device->CreateRenderTargetView(target.Get(), nullptr, handle);
+
+            handle.ptr += offset;
+            index += 1;
+        }
+
+        // Done
+        return S_OK;
+    }
 }
 
 struct core
@@ -97,7 +155,7 @@ struct core
         using wrl::ComPtr;
 
         /////////////////////////////////////////////////////////////////////
-        /// Setup environment
+        /// Device and Command Queue
 
         // Create debug layer.
         // Note: must enable it before creating our device.
@@ -124,7 +182,7 @@ struct core
 
         // Create device from a factory and an (internal created) adapter
         {
-            create::d3d12_device(factory, device) >> must::succeed;
+            make::d3d12_device(factory, device) >> must::succeed;
             if constexpr (env::is_debug())
                 device.As(&debug_device) >> must::succeed;
         }
@@ -138,8 +196,12 @@ struct core
             device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&command_allocator)) >> must::succeed;
         }
 
-        // Create swap_chain
+        /////////////////////////////////////////////////////////////////////
+        /// Swap chain
+
+        // Create swap chain
         {
+            // Note: zero width and height means using client area of the target window
             auto normal = DXGI_SWAP_CHAIN_DESC1{};
             normal.BufferCount = static_cast<UINT>(render_targets.size());
             normal.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -155,71 +217,45 @@ struct core
             base.As(&swap_chain) >> must::succeed;
         }
 
-        // Update rect and viewport
+        // Create swap chain related objects:
+        // - Update rect and viewport
+        // - Create a descriptor heap and its render target views,
+        // - Update descriptor size and frame index
         {
-            auto desc = DXGI_SWAP_CHAIN_DESC1{};
-            swap_chain->GetDesc1(&desc) >> must::succeed;
-
-            auto width = desc.Width;
-            auto height = desc.Height;
-            viewport.Width = static_cast<float>(width);
-            viewport.Height = static_cast<float>(height);
-            scissor_rect.right = static_cast<LONG>(width);
-            scissor_rect.bottom = static_cast<LONG>(height);
-        }
-
-        // Create descriptor heap for render target view
-        {
-            auto desc = D3D12_DESCRIPTOR_HEAP_DESC{};
-            desc.NumDescriptors = static_cast<UINT>(render_targets.size());
-            desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-            desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-            device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&render_target_view_heap)) >> must::succeed;
-        }
-
-        // Create frame resources
-        {
-            auto offset = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-            auto handle = render_target_view_heap->GetCPUDescriptorHandleForHeapStart();
-
-            // Create RTV for frames.
-            for (auto index = UINT{}; auto & target : render_targets)
-            {
-                swap_chain->GetBuffer(index, IID_PPV_ARGS(&target));
-                device->CreateRenderTargetView(target.Get(), nullptr, handle);
-
-                handle.ptr += offset;
-                index += 1;
-            }
+            make::viewport_and_scissor_rect(swap_chain, viewport, scissor_rect) >> must::succeed;
+            make::render_target_views(device, swap_chain, render_target_view_heap, render_targets) >> must::succeed;
+            render_target_view_descriptor_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+            frame_index = swap_chain->GetCurrentBackBufferIndex();
         }
 
         /////////////////////////////////////////////////////////////////////
         /// Setup resources
 
         // Create a root signature
+        //
+        // "one for every different binding configuration an application needs."
+        // Refer to: https://learn.microsoft.com/en-us/windows/win32/direct3d12/resource-binding-flow-of-control#resource-binding-flow-of-control
         {
-            auto feature = D3D12_FEATURE_DATA_ROOT_SIGNATURE{};
-            feature.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1;
+            auto ranges = std::array<D3D12_DESCRIPTOR_RANGE1, 1>{};
+            ranges[0].BaseShaderRegister = 0;
+            ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+            ranges[0].NumDescriptors = 1;
+            ranges[0].RegisterSpace = 0;
+            ranges[0].OffsetInDescriptorsFromTableStart = 0;
+            ranges[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
 
-            auto range = std::array<D3D12_DESCRIPTOR_RANGE1, 1>{};
-            range[0].BaseShaderRegister = 0;
-            range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
-            range[0].NumDescriptors = 1;
-            range[0].RegisterSpace = 0;
-            range[0].OffsetInDescriptorsFromTableStart = 0;
-            range[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
+            auto parameters = std::array<D3D12_ROOT_PARAMETER1, 1>{};
+            parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+            parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+            parameters[0].DescriptorTable.NumDescriptorRanges = static_cast<UINT>(ranges.size());
+            parameters[0].DescriptorTable.pDescriptorRanges = ranges.data();
 
-            auto parameter = std::array<D3D12_ROOT_PARAMETER1, 1>{};
-            parameter[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-            parameter[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-            parameter[0].DescriptorTable.NumDescriptorRanges = static_cast<UINT>(range.size());
-            parameter[0].DescriptorTable.pDescriptorRanges = range.data();
-
+            // Could use "device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, ...)" to check if 1_1 is supported
             auto desc = D3D12_VERSIONED_ROOT_SIGNATURE_DESC{};
             desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1; // tagged union of 1_0 and 1_1
             desc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-            desc.Desc_1_1.NumParameters = static_cast<UINT>(parameter.size());
-            desc.Desc_1_1.pParameters = parameter.data();
+            desc.Desc_1_1.NumParameters = static_cast<UINT>(parameters.size());
+            desc.Desc_1_1.pParameters = parameters.data();
             desc.Desc_1_1.NumStaticSamplers = 0;
             desc.Desc_1_1.pStaticSamplers = nullptr;
 
@@ -306,7 +342,7 @@ struct core
             device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, command_allocator.Get(), pipeline_state.Get(), IID_PPV_ARGS(&command_list)) >> must::succeed;
             command_list->Close() >> must::succeed;
 
-            // If we have "ID3D12Device4", use "CreateCommandList1" to aoivd calling "Close".
+            // If "ID3D12Device4" is available, use "CreateCommandList1" instead.
             // https://learn.microsoft.com/en-us/windows/win32/direct3d12/recording-command-lists-and-bundles#creating-command-lists
         }
 
@@ -320,31 +356,69 @@ struct core
         /////////////////////////////////////////////////////////////////////
         /// Synchronization
 
-        frame_index = swap_chain->GetCurrentBackBufferIndex();
         device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)) >> must::succeed;
     }
 
-    // Environment
+    auto wait_for_previous_frame()
+    {
+        using namespace aux;
+
+        auto value = fence_value;
+        command_queue->Signal(fence.Get(), value) >> must::succeed;
+
+        if (++value; fence->GetCompletedValue() < value)
+        {
+            fence->SetEventOnCompletion(value, fence_event) >> must::succeed;
+            WaitForSingleObjectEx(fence_event, INFINITE, false);
+        }
+
+        // Refer to:
+        // https://github.com/microsoft/DirectX-Graphics-Samples/blob/0aa79bad78992da0b6a8279ddb9002c1753cb849/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.cpp#L320-L340
+    }
+
+    auto resize_render_targets()
+    {
+        using namespace aux;
+
+        // 1. Wait for command_queue finished
+        wait_for_previous_frame();
+
+        // 2. Resize swapchain buffer
+        swap_chain->ResizeBuffers(static_cast<UINT>(render_targets.size()), 0, 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0) >> must::succeed;
+
+        // 3. Resize viewport and rect
+        make::viewport_and_scissor_rect(swap_chain, viewport, scissor_rect) >> must::succeed;
+
+        // 4. Create a new DescriptorHeap for render target view, and two render_targets.
+        make::render_target_views(device, swap_chain, render_target_view_heap, render_targets) >> must::succeed;
+        render_target_view_descriptor_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        frame_index = swap_chain->GetCurrentBackBufferIndex();
+    }
+
+    // Device and Command Queue
     wrl::ComPtr<ID3D12Device> device{};
     wrl::ComPtr<ID3D12DebugDevice> debug_device{};
     wrl::ComPtr<ID3D12CommandQueue> command_queue{};
     wrl::ComPtr<ID3D12CommandAllocator> command_allocator{};
 
-    // Render target
+    // Swap chain
     D3D12_VIEWPORT viewport{};
     D3D12_RECT scissor_rect{};
     wrl::ComPtr<IDXGISwapChain3> swap_chain{};
     wrl::ComPtr<ID3D12DescriptorHeap> render_target_view_heap{};
     std::array<wrl::ComPtr<ID3D12Resource>, 2> render_targets{};
+    UINT render_target_view_descriptor_size{};
 
     // Resources
     wrl::ComPtr<ID3D12RootSignature> root_signature{};
     wrl::ComPtr<ID3D12PipelineState> pipeline_state{};
     wrl::ComPtr<ID3D12GraphicsCommandList> command_list{};
 
-    wrl::ComPtr<ID3D12Resource> index_buffer{};
     wrl::ComPtr<ID3D12Resource> vertex_buffer{};
-    wrl::ComPtr<ID3D12Resource> uniform_buffer{};
+    wrl::ComPtr<ID3D12Resource> index_buffer{};
+    wrl::ComPtr<ID3D12Resource> constant_buffer{};
+    D3D12_VERTEX_BUFFER_VIEW vertex_buffer_view{};
+    D3D12_INDEX_BUFFER_VIEW index_buffer_view{};
 
     // Synchronization objects
     UINT frame_index{};
@@ -354,7 +428,7 @@ struct core
 };
 
 // Tutorial used:
+// https://alain.xyz/blog/raw-directx12
 // https://learn.microsoft.com/en-us/windows/win32/direct3d12/design-philosophy-of-command-queues-and-command-lists
 // https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component
 // https://learn.microsoft.com/en-us/samples/microsoft/directx-graphics-samples/d3d12-hello-world-samples-win32/
-// https://alain.xyz/blog/raw-directx12
