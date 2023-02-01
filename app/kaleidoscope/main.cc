@@ -12,7 +12,7 @@
 
 namespace must
 {
-    auto constexpr nonzero = [](auto && value)
+    auto constexpr done = [](std::convertible_to<BOOL> auto && value)
     {
         if (static_cast<bool>(value))
             return std::forward<decltype(value)>(value);
@@ -34,6 +34,12 @@ namespace must
         // see: https://learn.microsoft.com/en-us/cpp/build/configure-cmake-debugging-sessions?view=msvc-170#launchvsjson-reference
 
         throw std::system_error(code, std::system_category());
+    };
+
+    auto constexpr non_null = []<typename T>(T * value)
+    {
+        done(value != nullptr);
+        return value;
     };
 }
 
@@ -57,7 +63,7 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
     }
     case WM_CLOSE:
     {
-        ::DestroyWindow(hwnd) >> must::nonzero;
+        ::DestroyWindow(hwnd) >> must::done;
         return 0;
     }
     case WM_DESTROY:
@@ -82,6 +88,10 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
 
         auto delta = GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
         state.on_length_changed(delta);
+
+        // About mouse events
+        // - https://learn.microsoft.com/en-us/windows/win32/learnwin32/other-mouse-operations
+        // - https://github.com/MicrosoftDocs/win32/blob/e82557891475f35c505f90f2aa0f76bebb4e190c/desktop-src/inputdev/about-mouse-input.md
 
         ::InvalidateRect(hwnd, &rect, true /* Send WM_ERASEBKGND */);
         return 0;
@@ -169,7 +179,7 @@ auto wWinMain(
     auto state = viewmodel::state<LONG>();
 
     // Create a window class
-    // - https://learn.microsoft.com/en-us/windows/win32/learnwin32/learn-to-program-for-windows
+    // https://learn.microsoft.com/en-us/windows/win32/learnwin32/learn-to-program-for-windows
     auto clazz = WNDCLASS{};
     clazz.hInstance = instance;
     clazz.hIcon = ::LoadIcon(nullptr, IDI_WINLOGO);
@@ -192,28 +202,28 @@ auto wWinMain(
         nullptr, // No parent window
         nullptr, // No menu
         clazz.hInstance,
-        &state) >> must::nonzero;
+        &state) >> must::non_null;
 
     // Enable fullscreen mode
-    // - https://stackoverflow.com/q/2382464
-    ::SetWindowLongPtr(window, GWL_STYLE, WS_OVERLAPPEDWINDOW & ~(WS_CAPTION | WS_THICKFRAME)) >> must::nonzero;
+    // https://stackoverflow.com/q/2382464
+    ::SetWindowLongPtr(window, GWL_STYLE, WS_OVERLAPPEDWINDOW & ~(WS_CAPTION | WS_THICKFRAME)) >> must::done;
     auto extended_style = ::GetWindowLongPtr(window, GWL_EXSTYLE);
     auto disabled_style = WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE;
-    ::SetWindowLongPtr(window, GWL_EXSTYLE, extended_style & ~disabled_style) >> must::nonzero;
+    ::SetWindowLongPtr(window, GWL_EXSTYLE, extended_style & ~disabled_style) >> must::done;
 
     auto monitor_info = ::MONITORINFO{ /* cbSize */ sizeof(::MONITORINFO)};
-    ::GetMonitorInfo(::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor_info) >> must::nonzero;
-    auto monitor_left = monitor_info.rcMonitor.left;
-    auto monitor_top = monitor_info.rcMonitor.top;
-    auto monitor_width = monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
-    auto monitor_height = monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
-    ::SetWindowPos(window, 0, monitor_left, monitor_top, monitor_width, monitor_height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED) >> must::nonzero;
+    ::GetMonitorInfo(::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor_info) >> must::done;
+    auto monitor_left = static_cast<int>(monitor_info.rcMonitor.left);
+    auto monitor_top = static_cast<int>(monitor_info.rcMonitor.top);
+    auto monitor_width = static_cast<int>(monitor_info.rcMonitor.right - monitor_info.rcMonitor.left);
+    auto monitor_height = static_cast<int>(monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top);
+    ::SetWindowPos(window, 0, monitor_left, monitor_top, monitor_width, monitor_height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED) >> must::done;
     state.update_monitor_size(monitor_width, monitor_height);
 
     // Allow to click through
     // - https://stackoverflow.com/a/1524047
     // - https://www.codeproject.com/Articles/12877/Transparent-Click-Through-Forms
-    ::SetLayeredWindowAttributes(window, RGB(255, 255, 255), 0, LWA_COLORKEY) >> must::nonzero;
+    ::SetLayeredWindowAttributes(window, RGB(255, 255, 255), 0, LWA_COLORKEY) >> must::done;
 
     // Show the main window
     ::ShowWindow(window, show);

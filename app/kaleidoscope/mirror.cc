@@ -14,9 +14,9 @@
 #include "tool.h"
 #include "mirror.h"
 
-// Run "build" to generate header files.
+// Run "build" to generate header files listed in compiled_shader.
 //
-// About more details:
+// Refer to
 // https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-part1
 //
 namespace compiled_shader
@@ -55,6 +55,18 @@ namespace must
             OutputDebugString(static_cast<char const *>(message.GetBufferPointer()));
             throw _com_error(hr);
         };
+    };
+
+    auto constexpr non_null = []<typename T>(T * value)
+    {
+        if (value != nullptr)
+            return std::forward<decltype(value)>(value);
+
+        auto code = ::GetLastError();
+        auto desc = std::system_category().message(code);
+        ::OutputDebugString(desc.c_str());
+
+        throw std::system_error(code, std::system_category());
     };
 }
 
@@ -250,10 +262,21 @@ struct core
             parameters[0].DescriptorTable.NumDescriptorRanges = static_cast<UINT>(ranges.size());
             parameters[0].DescriptorTable.pDescriptorRanges = ranges.data();
 
+            // Allow input layout and deny uneccessary access to certain pipeline stages.
+            //
+            // Refer to
+            // https://github.com/microsoft/DirectX-Graphics-Samples/blob/a79e01c4c39e6d40f4b078688ff95814d166d34f/Samples/Desktop/D3D12HelloWorld/src/HelloConstBuffers/D3D12HelloConstBuffers.cpp#L170
+            auto flag
+                = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
+                | D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS
+                | D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS
+                | D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS
+                | D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
+
             // Could use "device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, ...)" to check if 1_1 is supported
             auto desc = D3D12_VERSIONED_ROOT_SIGNATURE_DESC{};
             desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1; // tagged union of 1_0 and 1_1
-            desc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+            desc.Desc_1_1.Flags = flag;
             desc.Desc_1_1.NumParameters = static_cast<UINT>(parameters.size());
             desc.Desc_1_1.pParameters = parameters.data();
             desc.Desc_1_1.NumStaticSamplers = 0;
@@ -265,15 +288,17 @@ struct core
             device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&root_signature)) >> must::succeed;
         }
 
-        // Create pipeline state
+        // Create a pipeline state (with vertex shader and pixel shader)
         {
-            auto input_vertex_layout = std::array<D3D12_INPUT_ELEMENT_DESC, 2>
+            // Define the input layout for vertex shader
+            auto vertex_shader_input_layout = std::array<D3D12_INPUT_ELEMENT_DESC, 2>
             {
                 D3D12_INPUT_ELEMENT_DESC
                 {"POS", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
                 {"TEX", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
             };
 
+            // Create the pipeline
             auto vertex_shader = D3D12_SHADER_BYTECODE{};
             vertex_shader.pShaderBytecode = compiled_shader::vertex_shader;
             vertex_shader.BytecodeLength = sizeof(compiled_shader::vertex_shader);
@@ -314,8 +339,8 @@ struct core
             raster.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
 
             auto input_layout = D3D12_INPUT_LAYOUT_DESC{};
-            input_layout.pInputElementDescs = input_vertex_layout.data();
-            input_layout.NumElements = static_cast<UINT>(input_vertex_layout.size());
+            input_layout.pInputElementDescs = vertex_shader_input_layout.data();
+            input_layout.NumElements = static_cast<UINT>(vertex_shader_input_layout.size());
 
             // About graphics pipeline state:
             // https://learn.microsoft.com/en-us/windows/win32/direct3d12/managing-graphics-pipeline-state-in-direct3d-12#graphics-pipeline-states-set-with-pipeline-state-objects
@@ -337,29 +362,211 @@ struct core
             device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipeline_state)) >> must::succeed;
         }
 
-        // Create a closed command list
+        // Create a command list
         {
             device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, command_allocator.Get(), pipeline_state.Get(), IID_PPV_ARGS(&command_list)) >> must::succeed;
             command_list->Close() >> must::succeed;
 
+            // Note: by default, command list is ceated in recording state.
+            //
             // If "ID3D12Device4" is available, use "CreateCommandList1" instead.
             // https://learn.microsoft.com/en-us/windows/win32/direct3d12/recording-command-lists-and-bundles#creating-command-lists
         }
 
-        // Create a vertex buffer
+        // Create a constant buffer (to track triangle's top and side lengh)
+        //
+        // Also see
+        // https://github.com/microsoft/DirectX-Graphics-Samples/blob/a79e01c4c39e6d40f4b078688ff95814d166d34f/Samples/Desktop/D3D12HelloWorld/src/HelloConstBuffers/D3D12HelloConstBuffers.cpp
         {
+            using buffer_type = float[3];
+            auto constexpr size = sizeof(buffer_type);
+            auto constexpr aligned_size = (size + 0xff) & ~0xff; // Required to be 256-byte aligned
 
+            // Create a heap for constant buffer
+            auto heap_properties = D3D12_HEAP_PROPERTIES{};
+            heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+            heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+            heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+            heap_properties.CreationNodeMask = 1;
+            heap_properties.VisibleNodeMask = 1;
+
+            auto heap_desc = D3D12_DESCRIPTOR_HEAP_DESC{};
+            heap_desc.NumDescriptors = 1;
+            heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+            heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+            device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&constant_buffer_heap)) >> must::succeed;
+
+            // Create a constant buffer
+            //
+            // Refer to
+            // https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ns-d3d12-d3d12_resource_desc#buffers
+            auto resource_desc = D3D12_RESOURCE_DESC{};
+            resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            resource_desc.Alignment = 0; // Same as D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
+            resource_desc.Width = aligned_size;
+            resource_desc.Height = 1;
+            resource_desc.DepthOrArraySize = 1;
+            resource_desc.MipLevels = 1;
+            resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+            resource_desc.SampleDesc.Count = 1;
+            resource_desc.SampleDesc.Quality = 0;
+            resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+            device->CreateCommittedResource(
+                &heap_properties,
+                D3D12_HEAP_FLAG_NONE,
+                &resource_desc,
+                D3D12_RESOURCE_STATE_GENERIC_READ,
+                nullptr,
+                IID_PPV_ARGS(&constant_buffer)) >> must::succeed;
+
+            // Create a constant buffer view
+            auto constant_buffer_view_desc = D3D12_CONSTANT_BUFFER_VIEW_DESC{};
+            constant_buffer_view_desc.BufferLocation = constant_buffer->GetGPUVirtualAddress();
+            constant_buffer_view_desc.SizeInBytes = aligned_size;
+            auto constant_buffer_handle = constant_buffer_heap->GetCPUDescriptorHandleForHeapStart();
+            device->CreateConstantBufferView(&constant_buffer_view_desc, constant_buffer_handle);
+
+            // Note:
+            //
+            // - Empty range means CPU won't read the data
+            // - Unmap is not needed for constant buffer
+            //
+            // Refer to
+            // https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12resource-map
+            auto range = D3D12_RANGE{};
+            constant_buffer->Map(0, &range, reinterpret_cast<void **>(&constant_buffer_data)) >> must::succeed;
+
+            // TODO: Copy our data to the input pointer.
         }
 
-        // TODO:
+        // Create a vertex buffer (to fill the entire screen)
+        {
+            // 4 pairs of (pos.x, pos.y, tex.x, tex.y)
+            auto constexpr vertices = std::array<std::array<float, 4>, 4>
+            {
+                -1.f, +1.f, 0.f, 0.f, // top left
+                +1.f, +1.f, 1.f, 0.f, // top right
+                +1.f, -1.f, 1.f, 1.f, // bottom right
+                -1.f, -1.f, 0.f, 1.f, // bottom left
+            };
+
+            // Create the vertex buffer
+            auto heap_properties = D3D12_HEAP_PROPERTIES{};
+            heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+            heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+            heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+            heap_properties.CreationNodeMask = 1;
+            heap_properties.VisibleNodeMask = 1;
+
+            auto resource_desc = D3D12_RESOURCE_DESC{};
+            resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            resource_desc.Alignment = 0;
+            resource_desc.Width = sizeof(vertices);
+            resource_desc.Height = 1;
+            resource_desc.DepthOrArraySize = 1;
+            resource_desc.MipLevels = 1;
+            resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+            resource_desc.SampleDesc.Count = 1;
+            resource_desc.SampleDesc.Quality = 0;
+            resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+            device->CreateCommittedResource(
+                &heap_properties,
+                D3D12_HEAP_FLAG_NONE,
+                &resource_desc,
+                D3D12_RESOURCE_STATE_GENERIC_READ,
+                nullptr,
+                IID_PPV_ARGS(&vertex_buffer)) >> must::succeed;
+
+            // Copy vertices to vertex buffer
+            auto input = static_cast<UINT8 *>(nullptr);
+            auto range = D3D12_RANGE{};
+            vertex_buffer->Map(0, &range, reinterpret_cast<void **>(&input)) >> must::succeed;
+            std::memcpy(input, vertices.data(), sizeof(vertices));
+            vertex_buffer->Unmap(0, nullptr);
+
+            // Initialize the vertex buffer view
+            vertex_buffer_view.BufferLocation = vertex_buffer->GetGPUVirtualAddress();
+            vertex_buffer_view.StrideInBytes = sizeof(vertices.front());
+            vertex_buffer_view.SizeInBytes = sizeof(vertices);
+        }
+
+        // Create a index buffer
+        {
+            // Divide one screen rect into two triangles
+            auto constexpr indexes = std::array<std::uint32_t, 3 * 2>
+            {
+                0, 1, 2, // top left -> top right -> bottom right
+                0, 2, 3, // top left -> bottom right -> bottom left
+            };
+
+            // Create 
+            auto heap_properties = D3D12_HEAP_PROPERTIES{};
+            heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+            heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+            heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+            heap_properties.CreationNodeMask = 1;
+            heap_properties.VisibleNodeMask = 1;
+
+            auto resource_desc = D3D12_RESOURCE_DESC{};
+            resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            resource_desc.Alignment = 0;
+            resource_desc.Width = sizeof(indexes);
+            resource_desc.Height = 1;
+            resource_desc.DepthOrArraySize = 1;
+            resource_desc.MipLevels = 1;
+            resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+            resource_desc.SampleDesc.Count = 1;
+            resource_desc.SampleDesc.Quality = 0;
+            resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+            device->CreateCommittedResource(
+                &heap_properties,
+                D3D12_HEAP_FLAG_NONE,
+                &resource_desc,
+                D3D12_RESOURCE_STATE_GENERIC_READ,
+                nullptr,
+                IID_PPV_ARGS(&index_buffer)) >> must::succeed;
+
+            // Copy indexes array to index buffer
+            auto input = static_cast<UINT8 *>(nullptr);
+            auto range = D3D12_RANGE{};
+            index_buffer->Map(0, &range, reinterpret_cast<void **>(&input)) >> must::succeed;
+            std::memcpy(input, indexes.data(), sizeof(indexes));
+            index_buffer->Unmap(0, nullptr);
+
+            // Initialize the vertex buffer view
+            index_buffer_view.BufferLocation = index_buffer->GetGPUVirtualAddress();
+            index_buffer_view.Format = DXGI_FORMAT_R32_UINT;
+            index_buffer_view.SizeInBytes = sizeof(indexes);
+        }
 
         /////////////////////////////////////////////////////////////////////
-        /// Synchronization
+        /// Synchronization objects
 
-        device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)) >> must::succeed;
+        // Create Synchronization objects
+        {
+            fence_event = CreateEvent(nullptr, false, false, nullptr) >> must::non_null;
+            fence_value = 1;
+            device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)) >> must::succeed;
+        }
+
+        // Wait until ready
+        
     }
 
-    auto wait_for_previous_frame()
+    ~core()
+    {
+        wait_for_previous_frame();
+        if (fence_event != nullptr)
+            CloseHandle(fence_event);
+    }
+
+    auto wait_for_previous_frame() -> void
     {
         using namespace aux;
 
@@ -376,7 +583,7 @@ struct core
         // https://github.com/microsoft/DirectX-Graphics-Samples/blob/0aa79bad78992da0b6a8279ddb9002c1753cb849/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.cpp#L320-L340
     }
 
-    auto resize_render_targets()
+    auto on_resize_render_targets() -> void
     {
         using namespace aux;
 
@@ -395,6 +602,79 @@ struct core
         frame_index = swap_chain->GetCurrentBackBufferIndex();
     }
 
+    auto on_update(float x, float y, float length) -> void
+    {
+        // Update constant buffer
+
+        // TODO: update "constant_buffer_data"
+        {
+            (void)x;
+            (void)y;
+            (void)length;
+        }
+    }
+
+    auto on_render() -> void
+    {
+        using namespace aux;
+
+        // Wait until done
+        wait_for_previous_frame();
+        frame_index = swap_chain->GetCurrentBackBufferIndex();
+
+        // Reset command list
+        command_allocator->Reset() >> must::succeed;
+        command_list->Reset(command_allocator.Get(), pipeline_state.Get());
+
+        // Setup command list
+        command_list->SetGraphicsRootSignature(root_signature.Get());
+        command_list->RSSetViewports(1, &viewport);
+        command_list->RSSetScissorRects(1, &scissor_rect);
+
+        auto heaps = std::array<ID3D12DescriptorHeap *, 1>{ constant_buffer_heap.Get()};
+        command_list->SetDescriptorHeaps(static_cast<UINT>(heaps.size()), heaps.data());
+        command_list->SetGraphicsRootDescriptorTable(0, constant_buffer_heap->GetGPUDescriptorHandleForHeapStart());
+
+        auto render_target_barrier = D3D12_RESOURCE_BARRIER{};
+        render_target_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        render_target_barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        render_target_barrier.Transition.pResource = render_targets[frame_index].Get(); // Use back buffer
+        render_target_barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        render_target_barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        render_target_barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        command_list->ResourceBarrier(1, &render_target_barrier);
+
+        auto handle = render_target_view_heap->GetCPUDescriptorHandleForHeapStart();
+        handle.ptr += frame_index * render_target_view_descriptor_size;
+        command_list->OMSetRenderTargets(1, &handle, false, nullptr);
+
+        auto constexpr default_color = std::array<float, 4>{0.0f, 0.2f, 0.4f, 1.0f};
+        command_list->ClearRenderTargetView(handle, default_color.data(), 0, nullptr);
+        command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        command_list->IASetVertexBuffers(0, 1, &vertex_buffer_view);
+        command_list->IASetIndexBuffer(&index_buffer_view);
+        command_list->DrawIndexedInstanced(3, 2, 0, 0, 0);
+
+        // Present back buffer
+        auto present_barrier = D3D12_RESOURCE_BARRIER{};
+        present_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        present_barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        present_barrier.Transition.pResource = render_targets[frame_index].Get();
+        present_barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        present_barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+        present_barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        command_list->ResourceBarrier(1, &present_barrier);
+
+        // Close command_list
+        command_list->Close() >> must::succeed;
+
+        // Execute command list
+        auto command_lists = std::array<ID3D12CommandList *, 1>{ command_list.Get() };
+        command_queue->ExecuteCommandLists(static_cast<UINT>(command_lists.size()), command_lists.data());
+
+        swap_chain->Present(1, 0);
+    }
+
     // Device and Command Queue
     wrl::ComPtr<ID3D12Device> device{};
     wrl::ComPtr<ID3D12DebugDevice> debug_device{};
@@ -408,27 +688,31 @@ struct core
     wrl::ComPtr<ID3D12DescriptorHeap> render_target_view_heap{};
     std::array<wrl::ComPtr<ID3D12Resource>, 2> render_targets{};
     UINT render_target_view_descriptor_size{};
+    UINT frame_index{};
 
     // Resources
     wrl::ComPtr<ID3D12RootSignature> root_signature{};
     wrl::ComPtr<ID3D12PipelineState> pipeline_state{};
     wrl::ComPtr<ID3D12GraphicsCommandList> command_list{};
 
-    wrl::ComPtr<ID3D12Resource> vertex_buffer{};
-    wrl::ComPtr<ID3D12Resource> index_buffer{};
     wrl::ComPtr<ID3D12Resource> constant_buffer{};
+    wrl::ComPtr<ID3D12DescriptorHeap> constant_buffer_heap{};
+    UINT8 * constant_buffer_data{};
+
+    wrl::ComPtr<ID3D12Resource> vertex_buffer{};
     D3D12_VERTEX_BUFFER_VIEW vertex_buffer_view{};
+
+    wrl::ComPtr<ID3D12Resource> index_buffer{};
     D3D12_INDEX_BUFFER_VIEW index_buffer_view{};
 
     // Synchronization objects
-    UINT frame_index{};
     HANDLE fence_event{};
     UINT64 fence_value{};
     wrl::ComPtr<ID3D12Fence> fence{};
 };
 
-// Tutorial used:
-// https://alain.xyz/blog/raw-directx12
-// https://learn.microsoft.com/en-us/windows/win32/direct3d12/design-philosophy-of-command-queues-and-command-lists
-// https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component
-// https://learn.microsoft.com/en-us/samples/microsoft/directx-graphics-samples/d3d12-hello-world-samples-win32/
+// Thanks to:
+// - https://alain.xyz/blog/raw-directx12
+// - https://learn.microsoft.com/en-us/windows/win32/direct3d12/design-philosophy-of-command-queues-and-command-lists
+// - https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component
+// - https://learn.microsoft.com/en-us/samples/microsoft/directx-graphics-samples/d3d12-hello-world-samples-win32/
