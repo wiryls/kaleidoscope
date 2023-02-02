@@ -29,8 +29,8 @@ foreach(file ${shader})
 endforeach(file)
 
 #[[ executable ]]
-set(source main.cc mirror.cc)
-set(header tool.h mirror.h model.h viewmodel.h)
+set(source view.cc render.cc)
+set(header tool.h  render.h model.h viewmodel.h)
 
 add_executable            (${name} WIN32 ${source} ${header} ${shader} ${BACKWARD_ENABLE})
 add_backward              (${name})

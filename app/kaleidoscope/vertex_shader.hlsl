@@ -1,3 +1,10 @@
+cbuffer regular_triangle_group : register(b0)
+{
+    float top_x;
+    float top_y;
+    float length;
+};
+
 struct vout
 {
     float2 tex : TEXCOORD;

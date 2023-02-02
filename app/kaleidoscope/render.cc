@@ -1,6 +1,6 @@
 #include <concepts>
 #include <stdexcept>
-#include <ranges>
+#include <system_error>
 #include <array>
 
 #define NOMINMAX
@@ -12,7 +12,7 @@
 #include <comdef.h>
 
 #include "tool.h"
-#include "mirror.h"
+#include "render.h"
 
 // Run "build" to generate header files listed in compiled_shader.
 //
@@ -159,8 +159,10 @@ namespace make
     }
 }
 
-struct core
+struct mirror::core
 {
+public:
+
     explicit core(HWND window)
     {
         using namespace aux;
@@ -214,22 +216,26 @@ struct core
         // Create swap chain
         {
             // Note: zero width and height means using client area of the target window
-            auto normal = DXGI_SWAP_CHAIN_DESC1{};
-            normal.BufferCount = static_cast<UINT>(render_targets.size());
-            normal.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-            normal.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-            normal.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-            normal.SampleDesc.Count = 1;
+            //
+            // Refer to
+            // https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/ns-dxgi1_2-dxgi_swap_chain_desc1
+            auto desc = DXGI_SWAP_CHAIN_DESC1{};
+            desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            desc.SampleDesc.Count = 1;
+            desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+            desc.BufferCount = static_cast<UINT>(render_targets.size());
+            desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
             auto fullscreen = DXGI_SWAP_CHAIN_FULLSCREEN_DESC{};
             fullscreen.Windowed = true;
 
             auto base = ComPtr<IDXGISwapChain1>();
-            factory->CreateSwapChainForHwnd(command_queue.Get(), window, &normal, &fullscreen, nullptr, &base) >> must::succeed;
+            factory->CreateSwapChainForHwnd(command_queue.Get(), window, &desc, &fullscreen, nullptr, &base) >> must::succeed;
             base.As(&swap_chain) >> must::succeed;
         }
 
         // Create swap chain related objects:
+        //
         // - Update rect and viewport
         // - Create a descriptor heap and its render target views,
         // - Update descriptor size and frame index
@@ -237,7 +243,7 @@ struct core
             make::viewport_and_scissor_rect(swap_chain, viewport, scissor_rect) >> must::succeed;
             make::render_target_views(device, swap_chain, render_target_view_heap, render_targets) >> must::succeed;
             render_target_view_descriptor_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-            frame_index = swap_chain->GetCurrentBackBufferIndex();
+            back_buffer_index = swap_chain->GetCurrentBackBufferIndex();
         }
 
         /////////////////////////////////////////////////////////////////////
@@ -290,14 +296,6 @@ struct core
 
         // Create a pipeline state (with vertex shader and pixel shader)
         {
-            // Define the input layout for vertex shader
-            auto vertex_shader_input_layout = std::array<D3D12_INPUT_ELEMENT_DESC, 2>
-            {
-                D3D12_INPUT_ELEMENT_DESC
-                {"POS", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-                {"TEX", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            };
-
             // Create the pipeline
             auto vertex_shader = D3D12_SHADER_BYTECODE{};
             vertex_shader.pShaderBytecode = compiled_shader::vertex_shader;
@@ -338,9 +336,9 @@ struct core
             raster.ForcedSampleCount = 0;
             raster.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
 
-            auto input_layout = D3D12_INPUT_LAYOUT_DESC{};
-            input_layout.pInputElementDescs = vertex_shader_input_layout.data();
-            input_layout.NumElements = static_cast<UINT>(vertex_shader_input_layout.size());
+            auto input_layout_desc = D3D12_INPUT_LAYOUT_DESC{};
+            input_layout_desc.pInputElementDescs = input_layout.data();
+            input_layout_desc.NumElements = static_cast<UINT>(input_layout.size());
 
             // About graphics pipeline state:
             // https://learn.microsoft.com/en-us/windows/win32/direct3d12/managing-graphics-pipeline-state-in-direct3d-12#graphics-pipeline-states-set-with-pipeline-state-objects
@@ -353,7 +351,7 @@ struct core
             desc.RasterizerState = raster;
             desc.DepthStencilState.DepthEnable = false;
             desc.DepthStencilState.StencilEnable = false;
-            desc.InputLayout = input_layout;
+            desc.InputLayout = input_layout_desc;
             desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
             desc.NumRenderTargets = 1;
             desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -378,8 +376,8 @@ struct core
         // Also see
         // https://github.com/microsoft/DirectX-Graphics-Samples/blob/a79e01c4c39e6d40f4b078688ff95814d166d34f/Samples/Desktop/D3D12HelloWorld/src/HelloConstBuffers/D3D12HelloConstBuffers.cpp
         {
-            using buffer_type = float[3];
-            auto constexpr size = sizeof(buffer_type);
+            using type = mirror::aligned_regular_triangle;
+            auto constexpr size = sizeof(type);
             auto constexpr aligned_size = (size + 0xff) & ~0xff; // Required to be 256-byte aligned
 
             // Create a heap for constant buffer
@@ -437,21 +435,10 @@ struct core
             // https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12resource-map
             auto range = D3D12_RANGE{};
             constant_buffer->Map(0, &range, reinterpret_cast<void **>(&constant_buffer_data)) >> must::succeed;
-
-            // TODO: Copy our data to the input pointer.
         }
 
         // Create a vertex buffer (to fill the entire screen)
         {
-            // 4 pairs of (pos.x, pos.y, tex.x, tex.y)
-            auto constexpr vertices = std::array<std::array<float, 4>, 4>
-            {
-                -1.f, +1.f, 0.f, 0.f, // top left
-                +1.f, +1.f, 1.f, 0.f, // top right
-                +1.f, -1.f, 1.f, 1.f, // bottom right
-                -1.f, -1.f, 0.f, 1.f, // bottom left
-            };
-
             // Create the vertex buffer
             auto heap_properties = D3D12_HEAP_PROPERTIES{};
             heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -496,13 +483,6 @@ struct core
 
         // Create a index buffer
         {
-            // Divide one screen rect into two triangles
-            auto constexpr indexes = std::array<std::uint32_t, 3 * 2>
-            {
-                0, 1, 2, // top left -> top right -> bottom right
-                0, 2, 3, // top left -> bottom right -> bottom left
-            };
-
             // Create 
             auto heap_properties = D3D12_HEAP_PROPERTIES{};
             heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -554,9 +534,6 @@ struct core
             fence_value = 1;
             device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)) >> must::succeed;
         }
-
-        // Wait until ready
-        
     }
 
     ~core()
@@ -573,7 +550,7 @@ struct core
         auto value = fence_value;
         command_queue->Signal(fence.Get(), value) >> must::succeed;
 
-        if (++value; fence->GetCompletedValue() < value)
+        if (++fence_value; fence->GetCompletedValue() < value)
         {
             fence->SetEventOnCompletion(value, fence_event) >> must::succeed;
             WaitForSingleObjectEx(fence_event, INFINITE, false);
@@ -583,35 +560,39 @@ struct core
         // https://github.com/microsoft/DirectX-Graphics-Samples/blob/0aa79bad78992da0b6a8279ddb9002c1753cb849/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.cpp#L320-L340
     }
 
-    auto on_resize_render_targets() -> void
+    auto on_resize() -> void
     {
         using namespace aux;
 
         // 1. Wait for command_queue finished
         wait_for_previous_frame();
 
-        // 2. Resize swapchain buffer
+        // 2. Release old references
+        //
+        // Refer to
+        // https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgiswapchain-resizebuffers#remarks
+        for (auto & target : render_targets)
+        {
+            target.Reset();
+        }
+        render_target_view_heap.Reset();
+
+        // 3. Resize swapchain buffer
         swap_chain->ResizeBuffers(static_cast<UINT>(render_targets.size()), 0, 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0) >> must::succeed;
 
-        // 3. Resize viewport and rect
+        // 4. Resize viewport and rect
         make::viewport_and_scissor_rect(swap_chain, viewport, scissor_rect) >> must::succeed;
 
-        // 4. Create a new DescriptorHeap for render target view, and two render_targets.
+        // 5. Create a new DescriptorHeap for render target view, and two render_targets
         make::render_target_views(device, swap_chain, render_target_view_heap, render_targets) >> must::succeed;
         render_target_view_descriptor_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-        frame_index = swap_chain->GetCurrentBackBufferIndex();
+        back_buffer_index = swap_chain->GetCurrentBackBufferIndex();
     }
 
-    auto on_update(float x, float y, float length) -> void
+    auto on_update(aligned_regular_triangle const & triangle) -> void
     {
         // Update constant buffer
-
-        // TODO: update "constant_buffer_data"
-        {
-            (void)x;
-            (void)y;
-            (void)length;
-        }
+        std::memcpy(constant_buffer_data, &triangle, sizeof(triangle));
     }
 
     auto on_render() -> void
@@ -620,7 +601,7 @@ struct core
 
         // Wait until done
         wait_for_previous_frame();
-        frame_index = swap_chain->GetCurrentBackBufferIndex();
+        back_buffer_index = swap_chain->GetCurrentBackBufferIndex();
 
         // Reset command list
         command_allocator->Reset() >> must::succeed;
@@ -635,45 +616,77 @@ struct core
         command_list->SetDescriptorHeaps(static_cast<UINT>(heaps.size()), heaps.data());
         command_list->SetGraphicsRootDescriptorTable(0, constant_buffer_heap->GetGPUDescriptorHandleForHeapStart());
 
+        // Switch to STATE_PRESENT
+        //
+        // Refer to
+        // https://github.com/microsoft/DirectXTK12/wiki/Resource-Barriers#swap-chain-resource-states
         auto render_target_barrier = D3D12_RESOURCE_BARRIER{};
         render_target_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         render_target_barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        render_target_barrier.Transition.pResource = render_targets[frame_index].Get(); // Use back buffer
+        render_target_barrier.Transition.pResource = render_targets[back_buffer_index].Get(); // Use back buffer
         render_target_barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
         render_target_barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
         render_target_barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         command_list->ResourceBarrier(1, &render_target_barrier);
 
         auto handle = render_target_view_heap->GetCPUDescriptorHandleForHeapStart();
-        handle.ptr += frame_index * render_target_view_descriptor_size;
+        handle.ptr += static_cast<SIZE_T>(back_buffer_index * render_target_view_descriptor_size);
         command_list->OMSetRenderTargets(1, &handle, false, nullptr);
 
-        auto constexpr default_color = std::array<float, 4>{0.0f, 0.2f, 0.4f, 1.0f};
+        // Clear and draw
+        auto constexpr default_color = std::array<float, 4>{0.f, 0.f, 0.f, 0.f};
         command_list->ClearRenderTargetView(handle, default_color.data(), 0, nullptr);
         command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         command_list->IASetVertexBuffers(0, 1, &vertex_buffer_view);
         command_list->IASetIndexBuffer(&index_buffer_view);
-        command_list->DrawIndexedInstanced(3, 2, 0, 0, 0);
+        command_list->DrawIndexedInstanced(static_cast<UINT>(indexes.size()), 1, 0, 0, 0);
 
-        // Present back buffer
+        // Switch to STATE_RENDER_TARGET
         auto present_barrier = D3D12_RESOURCE_BARRIER{};
         present_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         present_barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        present_barrier.Transition.pResource = render_targets[frame_index].Get();
+        present_barrier.Transition.pResource = render_targets[back_buffer_index].Get();
         present_barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
         present_barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
         present_barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         command_list->ResourceBarrier(1, &present_barrier);
 
-        // Close command_list
-        command_list->Close() >> must::succeed;
-
-        // Execute command list
+        // Close and execute command_list
         auto command_lists = std::array<ID3D12CommandList *, 1>{ command_list.Get() };
+        command_list->Close() >> must::succeed;
         command_queue->ExecuteCommandLists(static_cast<UINT>(command_lists.size()), command_lists.data());
 
-        swap_chain->Present(1, 0);
+        // Present back buffer
+        swap_chain->Present(1, 0) >> must::succeed;
     }
+
+public:
+
+    // Define the input layout for vertex shader
+    auto static inline constexpr input_layout = std::array<D3D12_INPUT_ELEMENT_DESC, 2>
+    {
+        D3D12_INPUT_ELEMENT_DESC
+        { "POS", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TEX", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+
+    // 4 pairs of (pos.x, pos.y, tex.x, tex.y)
+    auto static inline constexpr vertices = std::array<std::array<float, 4>, 4>
+    {
+        -1.f, +1.f, 0.f, 0.f, // top left
+        +1.f, +1.f, 1.f, 0.f, // top right
+        +1.f, -1.f, 1.f, 1.f, // bottom right
+        -1.f, -1.f, 0.f, 1.f, // bottom left
+    };
+
+    // Divide one screen rect into two triangles
+    auto static inline constexpr indexes = std::array<std::uint32_t, 3 * 2>
+    {
+        0, 1, 2, // top left -> top right -> bottom right
+        0, 2, 3, // top left -> bottom right -> bottom left
+    };
+
+public:
 
     // Device and Command Queue
     wrl::ComPtr<ID3D12Device> device{};
@@ -688,7 +701,7 @@ struct core
     wrl::ComPtr<ID3D12DescriptorHeap> render_target_view_heap{};
     std::array<wrl::ComPtr<ID3D12Resource>, 2> render_targets{};
     UINT render_target_view_descriptor_size{};
-    UINT frame_index{};
+    UINT back_buffer_index{};
 
     // Resources
     wrl::ComPtr<ID3D12RootSignature> root_signature{};
@@ -716,3 +729,24 @@ struct core
 // - https://learn.microsoft.com/en-us/windows/win32/direct3d12/design-philosophy-of-command-queues-and-command-lists
 // - https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component
 // - https://learn.microsoft.com/en-us/samples/microsoft/directx-graphics-samples/d3d12-hello-world-samples-win32/
+// - https://learn.microsoft.com/en-us/archive/msdn-magazine/2014/june/windows-with-c-high-performance-window-layering-using-the-windows-composition-engine
+
+mirror::~mirror() = default;
+mirror::mirror(HWND window)
+    : o(std::make_unique<core>(window))
+{}
+
+auto mirror::on_resize() -> void
+{
+    o->on_resize();
+}
+
+auto mirror::on_render() -> void
+{
+    o->on_render();
+}
+
+auto mirror::on_update(aligned_regular_triangle const & triangle) -> void
+{
+    o->on_update(triangle);
+}

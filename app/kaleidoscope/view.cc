@@ -9,6 +9,7 @@
 
 #include "tool.h"
 #include "viewmodel.h"
+#include "render.h"
 
 namespace must
 {
@@ -43,27 +44,52 @@ namespace must
     };
 }
 
+namespace ext
+{
+    auto to_aligned_regular_triangle(viewmodel::state<LONG> const & state) -> mirror::aligned_regular_triangle
+    {
+        auto top = state.triangle_top();
+        auto out = mirror::aligned_regular_triangle{};
+        out.top_x = static_cast<float>(top[0]);
+        out.top_y = static_cast<float>(top[1]);
+        out.length = static_cast<float>(state.triangle_side_length());
+        return out;
+    }
+}
+
+namespace app
+{
+    struct data
+    {
+        viewmodel::state<LONG> state{};
+        std::unique_ptr<mirror> render{ nullptr };
+    };
+}
+
 auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) -> LRESULT
 {
     // Preparation
     using namespace ::aux;
-    using state_type = viewmodel::state<LONG>;
-    using state_pointer = state_type *;
+    using user_data_pointer = app::data *;
 
     // Life-time related message
-    auto userdata = state_pointer{};
+    auto user_data = user_data_pointer{};
     switch (umsg)
     {
     case WM_CREATE:
     {
-        auto param = reinterpret_cast<CREATESTRUCT *>(lparam);
-        auto state = reinterpret_cast<state_pointer>(param->lpCreateParams);
+        auto param = reinterpret_cast<CREATESTRUCT *>(lparam) >> must::non_null;
+        auto state = reinterpret_cast<user_data_pointer>(param->lpCreateParams) >> must::non_null;
+        {
+            // Init members
+            state->render = std::make_unique<mirror>(hwnd);
+        }
         ::SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
         return 0;
     }
     case WM_CLOSE:
     {
-        ::DestroyWindow(hwnd) >> must::done;
+        ::DestroyWindow(hwnd);
         return 0;
     }
     case WM_DESTROY:
@@ -73,13 +99,15 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
     }}
 
     // Ignore if not ready
-    if (userdata = reinterpret_cast<state_pointer>(::GetWindowLongPtr(hwnd, GWLP_USERDATA)); userdata == nullptr)
+    if (user_data = reinterpret_cast<user_data_pointer>(::GetWindowLongPtr(hwnd, GWLP_USERDATA)); user_data == nullptr)
     {
         return ::DefWindowProc(hwnd, umsg, wparam, lparam);
     }
 
     // Event related message
-    switch (auto & state = *userdata; umsg)
+    auto & state = user_data->state;
+    auto & render = *user_data->render.get();
+    switch (umsg)
     {
     case WM_MOUSEWHEEL:
     {
@@ -144,16 +172,33 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
         auto & positions = state.viewport_vertices();
         auto vertices = std::array<POINT, 3>{};
         static_assert(sizeof positions == sizeof vertices);
-        std::memcpy(vertices.data(), positions.data(), sizeof(vertices));
+        std::memcpy(vertices.data(), positions.data(), sizeof(positions));
 
-        // Prepare to repaint
+        // Repaint mask (click through area)
         auto ps = PAINTSTRUCT{};
         auto hdc = ::BeginPaint(hwnd, &ps);
-
         ::SetDCBrushColor(hdc, RGB(255, 255, 255));
         ::Polygon(hdc, vertices.data(), static_cast<int>(vertices.size()));
-
         ::EndPaint(hwnd, &ps);
+
+        // Repaint screen
+        render.on_render();
+
+        return 0;
+    }
+    case WM_SIZE:
+    {
+        auto width = LOWORD(lparam);
+        auto height = HIWORD(lparam);
+        if (width != 0 && height != 0)
+        {
+            // Update
+            state.update_monitor_size(width, height);
+            render.on_update(ext::to_aligned_regular_triangle(state));
+            render.on_resize();
+            // Repaint
+            ::InvalidateRect(hwnd, nullptr, true);
+        }
         return 0;
     }
     default:
@@ -175,8 +220,8 @@ auto wWinMain(
     // Prepare some declarations
     using namespace ::aux;
 
-    // Create the state
-    auto state = viewmodel::state<LONG>();
+    // Create the user data
+    auto user_data = app::data{};
 
     // Create a window class
     // https://learn.microsoft.com/en-us/windows/win32/learnwin32/learn-to-program-for-windows
@@ -202,7 +247,7 @@ auto wWinMain(
         nullptr, // No parent window
         nullptr, // No menu
         clazz.hInstance,
-        &state) >> must::non_null;
+        &user_data) >> must::non_null;
 
     // Enable fullscreen mode
     // https://stackoverflow.com/q/2382464
@@ -218,11 +263,13 @@ auto wWinMain(
     auto monitor_width = static_cast<int>(monitor_info.rcMonitor.right - monitor_info.rcMonitor.left);
     auto monitor_height = static_cast<int>(monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top);
     ::SetWindowPos(window, 0, monitor_left, monitor_top, monitor_width, monitor_height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED) >> must::done;
-    state.update_monitor_size(monitor_width, monitor_height);
 
     // Allow to click through
+    //
     // - https://stackoverflow.com/a/1524047
     // - https://www.codeproject.com/Articles/12877/Transparent-Click-Through-Forms
+    //
+    // WHITE \ RGB(255, 255, 255) is selected as click-through-able color
     ::SetLayeredWindowAttributes(window, RGB(255, 255, 255), 0, LWA_COLORKEY) >> must::done;
 
     // Show the main window

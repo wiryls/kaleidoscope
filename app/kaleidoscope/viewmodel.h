@@ -13,7 +13,8 @@ namespace viewmodel
         using timed_type = std::chrono::time_point<std::chrono::steady_clock>;
 
     public:
-        using vertices = model::viewport<I>::vertices;
+        using point = point_type;
+        using vertices = model_type::vertices;
 
     public:
         auto on_start_moving(std::integral auto x, std::integral auto y) -> void
@@ -90,9 +91,20 @@ namespace viewmodel
             return is_dragging;
         }
 
+        // Order: top, right, left
         auto viewport_vertices() const -> vertices const &
         {
             return viewport.positions();
+        }
+
+        auto triangle_top() const -> point
+        {
+            return viewport.top();
+        }
+
+        auto triangle_side_length() const -> I
+        {
+            return viewport.side();
         }
 
     private:
