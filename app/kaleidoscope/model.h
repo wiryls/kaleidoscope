@@ -8,29 +8,33 @@
 namespace model
 {
     template<std::integral I>
-    class viewport
+    class scoped_triangle
     {
     public:
         using point = std::array<I, 2>;
         using vertices = std::array<point, 3>;
 
     public:
-        viewport()
+        scoped_triangle()
         {
             resize(1280, 720);
             update();
         }
 
-        auto resize(std::integral auto new_screen_width, std::integral auto new_screen_height) -> void
+        auto resize(std::integral auto width, std::integral auto height) -> bool
         {
-            screen_width = std::max(0., static_cast<double>(new_screen_width));
-            screen_height = std::max(0., static_cast<double>(new_screen_height));
+            if (static_cast<decltype(width)>(screen_width) == width || static_cast<decltype(height)>(screen_height) == height)
+                return false;
+
+            screen_width = std::max(0., static_cast<double>(width));
+            screen_height = std::max(0., static_cast<double>(height));
 
             top_x = screen_width / 2.;
             top_y = screen_height / 2.;
             length = std::min(top_y / sqrt3, top_x / 2.);
 
             update();
+            return true;
         }
 
         auto move(std::integral auto dx, std::integral auto dy) -> void

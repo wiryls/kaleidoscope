@@ -8,10 +8,11 @@
 #include <D3d12SDKLayers.h>
 #include <d3d12.h>
 #include <dxgi1_6.h>
+#include <dcomp.h>
 #include <wrl.h>
-#include <comdef.h>
 
 #include "tool.h"
+#include "error.h"
 #include "render.h"
 
 // Run "build" to generate header files listed in compiled_shader.
@@ -27,48 +28,6 @@ namespace compiled_shader
 
 // Rename namespace
 namespace wrl = Microsoft::WRL;
-
-// Error handle
-namespace must
-{
-    auto constexpr succeed = [](HRESULT hr)
-    {
-        if (SUCCEEDED(hr))
-            return hr;
-
-        // About error message:
-        // https://stackoverflow.com/a/7008111
-        auto err = _com_error(hr);
-        auto desc = err.ErrorMessage();
-        OutputDebugString(desc);
-
-        throw err;
-    };
-
-    auto constexpr succeed_with = [](ID3DBlob & message)
-    {
-        return [&](HRESULT hr)
-        {
-            if (SUCCEEDED(hr))
-                return hr;
-
-            OutputDebugString(static_cast<char const *>(message.GetBufferPointer()));
-            throw _com_error(hr);
-        };
-    };
-
-    auto constexpr non_null = []<typename T>(T * value)
-    {
-        if (value != nullptr)
-            return std::forward<decltype(value)>(value);
-
-        auto code = ::GetLastError();
-        auto desc = std::system_category().message(code);
-        ::OutputDebugString(desc.c_str());
-
-        throw std::system_error(code, std::system_category());
-    };
-}
 
 // Builder
 namespace make
@@ -157,19 +116,37 @@ namespace make
         // Done
         return S_OK;
     }
+
+    auto static fullscreen_size(HWND window, UINT & width, UINT & height) -> BOOL
+    {
+        auto monitor_info = ::MONITORINFO{ /* cbSize */ sizeof(::MONITORINFO)};
+        auto & rect = monitor_info.rcMonitor;
+        auto done = GetMonitorInfo(::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor_info);
+        if (done)
+        {
+            width = static_cast<UINT>(rect.right - rect.left);
+            height = static_cast<UINT>(rect.bottom - rect.top);
+        }
+        return done;
+    }
 }
 
 struct mirror::core
 {
 public:
 
-    explicit core(HWND window)
+    explicit core(HWND w)
     {
         using namespace aux;
         using wrl::ComPtr;
 
         /////////////////////////////////////////////////////////////////////
         /// Device and Command Queue
+
+        // Save the handle of window
+        {
+            window = w;
+        }
 
         // Create debug layer.
         // Note: must enable it before creating our device.
@@ -220,17 +197,20 @@ public:
             // Refer to
             // https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/ns-dxgi1_2-dxgi_swap_chain_desc1
             auto desc = DXGI_SWAP_CHAIN_DESC1{};
+            make::fullscreen_size(window, desc.Width, desc.Height) >> must::done;
             desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
             desc.SampleDesc.Count = 1;
             desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
             desc.BufferCount = static_cast<UINT>(render_targets.size());
-            desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+            desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+            desc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
 
-            auto fullscreen = DXGI_SWAP_CHAIN_FULLSCREEN_DESC{};
-            fullscreen.Windowed = true;
-
+            // Must use command_queue (in DX12) instead of device (in DX11)
+            //
+            // Refer to
+            // https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgifactory2-createswapchainforcomposition
             auto base = ComPtr<IDXGISwapChain1>();
-            factory->CreateSwapChainForHwnd(command_queue.Get(), window, &desc, &fullscreen, nullptr, &base) >> must::succeed;
+            factory->CreateSwapChainForComposition(command_queue.Get(), &desc, nullptr, &base) >> must::succeed;
             base.As(&swap_chain) >> must::succeed;
         }
 
@@ -244,6 +224,19 @@ public:
             make::render_target_views(device, swap_chain, render_target_view_heap, render_targets) >> must::succeed;
             render_target_view_descriptor_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
             back_buffer_index = swap_chain->GetCurrentBackBufferIndex();
+        }
+
+        /////////////////////////////////////////////////////////////////////
+        /// Create composition device
+        {
+            // Refer to:
+            // https://github.com/PJayB/DirectCompositionDirectX12Sample/blob/689c151d0358bc7745ca6e4a3c4f35bbfa75941b/DirectCompositeSample.cpp#L107-L125
+            DCompositionCreateDevice(nullptr, IID_PPV_ARGS(&composition_device)) >> must::succeed;
+            composition_device->CreateTargetForHwnd(window, true, &composition_target) >> must::succeed;
+            composition_device->CreateVisual(&composition_visual) >> must::succeed;
+            composition_visual->SetContent(swap_chain.Get()) >> must::succeed;
+            composition_target->SetRoot(composition_visual.Get()) >> must::succeed;
+            composition_device->Commit() >> must::succeed;
         }
 
         /////////////////////////////////////////////////////////////////////
@@ -578,7 +571,10 @@ public:
         render_target_view_heap.Reset();
 
         // 3. Resize swapchain buffer
-        swap_chain->ResizeBuffers(static_cast<UINT>(render_targets.size()), 0, 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0) >> must::succeed;
+        auto width = UINT{};
+        auto height = UINT{};
+        make::fullscreen_size(window, width, height) >> must::done;
+        swap_chain->ResizeBuffers(static_cast<UINT>(render_targets.size()), width, height, DXGI_FORMAT_R8G8B8A8_UNORM, 0) >> must::succeed;
 
         // 4. Resize viewport and rect
         make::viewport_and_scissor_rect(swap_chain, viewport, scissor_rect) >> must::succeed;
@@ -689,6 +685,7 @@ public:
 public:
 
     // Device and Command Queue
+    HWND window{};
     wrl::ComPtr<ID3D12Device> device{};
     wrl::ComPtr<ID3D12DebugDevice> debug_device{};
     wrl::ComPtr<ID3D12CommandQueue> command_queue{};
@@ -702,6 +699,11 @@ public:
     std::array<wrl::ComPtr<ID3D12Resource>, 2> render_targets{};
     UINT render_target_view_descriptor_size{};
     UINT back_buffer_index{};
+
+    // Composition
+    wrl::ComPtr<IDCompositionDevice> composition_device{};
+    wrl::ComPtr<IDCompositionTarget> composition_target{};
+    wrl::ComPtr<IDCompositionVisual> composition_visual{};
 
     // Resources
     wrl::ComPtr<ID3D12RootSignature> root_signature{};

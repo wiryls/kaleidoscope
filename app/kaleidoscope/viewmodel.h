@@ -8,7 +8,7 @@ namespace viewmodel
     class state
     {
     private:
-        using model_type = model::viewport<I>;
+        using model_type = model::scoped_triangle<I>;
         using point_type = model_type::point;
         using timed_type = std::chrono::time_point<std::chrono::steady_clock>;
 
@@ -81,9 +81,11 @@ namespace viewmodel
 
         auto update_monitor_size(std::integral auto x, std::integral auto y) -> void
         {
-            viewport.resize(x, y);
-            is_dragging = false;
-            relative_position = {};
+            if (viewport.resize(x, y))
+            {
+                is_dragging = false;
+                relative_position = {};
+            }
         }
 
         auto is_moving() const -> bool
