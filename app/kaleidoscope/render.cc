@@ -7,6 +7,7 @@
 #include <Windows.h>
 #include <D3d12SDKLayers.h>
 #include <d3d12.h>
+#include <d3d11.h>
 #include <dxgi1_6.h>
 #include <dcomp.h>
 #include <wrl.h>
@@ -34,30 +35,46 @@ namespace make
 {
     using wrl::ComPtr;
 
-    auto static d3d12_device(ComPtr<IDXGIFactory4> const & factory, ComPtr<ID3D12Device> & device) -> HRESULT
+    auto static recommended_adapter(ComPtr<IDXGIFactory4> const & factory, ComPtr<IDXGIAdapter1> & adapter) -> HRESULT
     {
-        // Create adapter and device
-        auto adapter = ComPtr<IDXGIAdapter1>();
+        auto current = ComPtr<IDXGIAdapter1>();
+        auto desc = DXGI_ADAPTER_DESC1{};
         for (auto index = UINT{}; ; ++index)
         {
             // Note for ComPtr: "operator &" == "ReleaseAndGetAddressOf()"
-            if (auto hr = factory->EnumAdapters1(index, &adapter); FAILED(hr))
+            if (auto hr = factory->EnumAdapters1(index, &current); FAILED(hr))
                 return hr;
 
-            auto desc = DXGI_ADAPTER_DESC1{};
-            if (auto hr = adapter->GetDesc1(&desc); FAILED(hr))
+            if (auto hr = current->GetDesc1(&desc); FAILED(hr))
                 return hr;
 
             if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
                 continue;
 
-            if (SUCCEEDED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device))))
-                break;
-        }
+            adapter = std::move(current);
 
-        // Common HRESULT Values:
-        // https://learn.microsoft.com/en-us/windows/win32/seccrypto/common-hresult-values
-        return S_OK;
+            // Common HRESULT Values
+            // https://learn.microsoft.com/en-us/windows/win32/seccrypto/common-hresult-values
+            return S_OK;
+        }
+    }
+
+    auto static inferenced_output(HWND window, ComPtr<IDXGIAdapter1> const & adapter, ComPtr<IDXGIOutput1> & output) -> HRESULT
+    {
+        auto target = ::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+        auto source = ComPtr<IDXGIOutput>{};
+        auto desc = DXGI_OUTPUT_DESC{};
+        for (auto index = UINT{}; ; ++index)
+        {
+            if (auto hr = adapter->EnumOutputs(index, &source); FAILED(hr))
+                return hr;
+
+            if (auto hr = source->GetDesc(&desc); FAILED(hr))
+                return hr;
+
+            if (desc.Monitor == target)
+                return source.As(&output);
+        }
     }
 
     auto static viewport_and_scissor_rect(
@@ -116,39 +133,28 @@ namespace make
         // Done
         return S_OK;
     }
-
-    auto static fullscreen_size(HWND window, UINT & width, UINT & height) -> BOOL
-    {
-        auto monitor_info = ::MONITORINFO{ /* cbSize */ sizeof(::MONITORINFO)};
-        auto & rect = monitor_info.rcMonitor;
-        auto done = GetMonitorInfo(::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor_info);
-        if (done)
-        {
-            width = static_cast<UINT>(rect.right - rect.left);
-            height = static_cast<UINT>(rect.bottom - rect.top);
-        }
-        return done;
-    }
 }
 
 struct mirror::core
 {
 public:
 
-    explicit core(HWND w)
+    core(HWND window, UINT width, UINT height)
     {
+        // Prepare
         using namespace aux;
         using wrl::ComPtr;
+
+        // Expected feature levels
+        auto constexpr feature_levels = std::array<D3D_FEATURE_LEVEL, 1>
+        {
+            D3D_FEATURE_LEVEL_11_0
+        };
 
         /////////////////////////////////////////////////////////////////////
         /// Device and Command Queue
 
-        // Save the handle of window
-        {
-            window = w;
-        }
-
-        // Create debug layer.
+        // Create a debug layer.
         // Note: must enable it before creating our device.
         if constexpr (env::is_debug())
         {
@@ -164,26 +170,51 @@ public:
             controller->SetEnableGPUBasedValidation(true);
         }
 
-        // Create DXGI factory
+        // Create a DXGI factory and adapter
         auto factory = ComPtr<IDXGIFactory4>();
+        auto adapter = ComPtr<IDXGIAdapter1>{};
         {
             auto flag = env::is_debug() ? DXGI_CREATE_FACTORY_DEBUG : UINT{};
             CreateDXGIFactory2(flag, IID_PPV_ARGS(&factory)) >> must::succeed;
+            make::recommended_adapter(factory, adapter) >> must::succeed;
         }
 
-        // Create device from a factory and an (internal created) adapter
+        // Create an IDXGIOutput
         {
-            make::d3d12_device(factory, device) >> must::succeed;
+            // Device and context
+            D3D11CreateDevice(
+                adapter.Get(),
+                D3D_DRIVER_TYPE_UNKNOWN,
+                nullptr,
+                0,
+                feature_levels.data(),
+                static_cast<UINT>(feature_levels.size()),
+                D3D11_SDK_VERSION,
+                &device11,
+                nullptr,
+                &context11) >> must::succeed;
+
+            // Create an IDXGIOutput1
+            make::inferenced_output(window, adapter, output) >> must::succeed;
+
+            // Create an IDXGIDuplicateOutput
+            output->DuplicateOutput(device11.Get(), &output_duplication) >> must::succeed;
+        }
+
+        // Create device, command queue and command allocator
+        {
+            // Device
+            D3D12CreateDevice(adapter.Get(), feature_levels.back(), IID_PPV_ARGS(&device)) >> must::succeed;
             if constexpr (env::is_debug())
                 device.As(&debug_device) >> must::succeed;
-        }
 
-        // Create command queue and command allocator
-        {
+            // Command queue
             auto desc = D3D12_COMMAND_QUEUE_DESC{};
             desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
             desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
             device->CreateCommandQueue(&desc, IID_PPV_ARGS(&command_queue)) >> must::succeed;
+
+            // Command allocator
             device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&command_allocator)) >> must::succeed;
         }
 
@@ -197,7 +228,8 @@ public:
             // Refer to
             // https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/ns-dxgi1_2-dxgi_swap_chain_desc1
             auto desc = DXGI_SWAP_CHAIN_DESC1{};
-            make::fullscreen_size(window, desc.Width, desc.Height) >> must::done;
+            desc.Width = width;
+            desc.Height = height;
             desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
             desc.SampleDesc.Count = 1;
             desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
@@ -553,7 +585,7 @@ public:
         // https://github.com/microsoft/DirectX-Graphics-Samples/blob/0aa79bad78992da0b6a8279ddb9002c1753cb849/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.cpp#L320-L340
     }
 
-    auto on_resize() -> void
+    auto on_resize(UINT width, UINT height) -> void
     {
         using namespace aux;
 
@@ -571,9 +603,6 @@ public:
         render_target_view_heap.Reset();
 
         // 3. Resize swapchain buffer
-        auto width = UINT{};
-        auto height = UINT{};
-        make::fullscreen_size(window, width, height) >> must::done;
         swap_chain->ResizeBuffers(static_cast<UINT>(render_targets.size()), width, height, DXGI_FORMAT_R8G8B8A8_UNORM, 0) >> must::succeed;
 
         // 4. Resize viewport and rect
@@ -594,6 +623,9 @@ public:
     auto on_render() -> void
     {
         using namespace aux;
+
+        // TODO:
+        // get the screen shot from OutputDuplication
 
         // Wait until done
         wait_for_previous_frame();
@@ -646,7 +678,7 @@ public:
         present_barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
         present_barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         command_list->ResourceBarrier(1, &present_barrier);
-
+        
         // Close and execute command_list
         auto command_lists = std::array<ID3D12CommandList *, 1>{ command_list.Get() };
         command_list->Close() >> must::succeed;
@@ -662,7 +694,7 @@ public:
     auto static inline constexpr input_layout = std::array<D3D12_INPUT_ELEMENT_DESC, 2>
     {
         D3D12_INPUT_ELEMENT_DESC
-        { "POS", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "POS", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "TEX", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 
@@ -684,8 +716,19 @@ public:
 
 public:
 
+    // D3D11 Device
+    //
+    // As IDXGIOutputDuplication is not supported on D3D12, we need to maintain a
+    // stand-alone D3D11 device. Hope to remove it once supported.
+    //
+    // Refer to
+    // https://stackoverflow.com/a/40294831
+    wrl::ComPtr<ID3D11Device> device11{};
+    wrl::ComPtr<ID3D11DeviceContext> context11{};
+    wrl::ComPtr<IDXGIOutput1> output{};
+    wrl::ComPtr<IDXGIOutputDuplication> output_duplication{};
+
     // Device and Command Queue
-    HWND window{};
     wrl::ComPtr<ID3D12Device> device{};
     wrl::ComPtr<ID3D12DebugDevice> debug_device{};
     wrl::ComPtr<ID3D12CommandQueue> command_queue{};
@@ -734,13 +777,13 @@ public:
 // - https://learn.microsoft.com/en-us/archive/msdn-magazine/2014/june/windows-with-c-high-performance-window-layering-using-the-windows-composition-engine
 
 mirror::~mirror() = default;
-mirror::mirror(HWND window)
-    : o(std::make_unique<core>(window))
+mirror::mirror(HWND window, std::uint32_t width, std::uint32_t height)
+    : o(std::make_unique<core>(window, static_cast<UINT>(width), static_cast<UINT>(height)))
 {}
 
-auto mirror::on_resize() -> void
+auto mirror::on_resize(std::uint32_t width, std::uint32_t height) -> void
 {
-    o->on_resize();
+    o->on_resize(static_cast<UINT>(width), static_cast<UINT>(height));
 }
 
 auto mirror::on_render() -> void

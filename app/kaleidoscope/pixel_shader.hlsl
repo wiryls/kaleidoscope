@@ -3,5 +3,8 @@
 
 float4 main(float2 tex : TEXCOORD) : SV_TARGET
 {
-    return float4(tex, 0.0, 0.5);
+    if (tex.x > 0.5 && tex.y > 0.5)
+        return float4(0.0, 0.0, 0.0, 0.0);
+    else
+        return float4(tex, 1.0, 1.0);
 }

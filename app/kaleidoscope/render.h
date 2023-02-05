@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <memory>
 
 // forward declaration
@@ -18,10 +19,10 @@ public:
 
 public:
 	~mirror();
-	explicit mirror(HWND window);
+	mirror(HWND window, std::uint32_t width, std::uint32_t height);
 
 public:
-	auto on_resize() -> void;
+	auto on_resize(std::uint32_t width, std::uint32_t height) -> void;
 	auto on_render() -> void;
 	auto on_update(aligned_regular_triangle const & triangle) -> void;
 

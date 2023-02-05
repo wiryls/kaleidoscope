@@ -14,7 +14,13 @@
 
 namespace ext
 {
-    auto to_aligned_regular_triangle(viewmodel::state<LONG> const & state) -> mirror::aligned_regular_triangle
+    auto inline to_bounding_rect(viewmodel::state<LONG> const & state) -> RECT
+    {
+        auto & v = state.viewport_vertices();
+        return RECT{v[2][0], v[0][1], v[1][0], v[1][1]};
+    }
+
+    auto inline to_aligned_regular_triangle(viewmodel::state<LONG> const & state) -> mirror::aligned_regular_triangle
     {
         auto top = state.triangle_top();
         auto out = mirror::aligned_regular_triangle{};
@@ -47,12 +53,33 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
     case WM_CREATE:
     {
         auto param = reinterpret_cast<CREATESTRUCT *>(lparam) >> must::non_null;
-        auto state = reinterpret_cast<user_data_pointer>(param->lpCreateParams) >> must::non_null;
-        {
-            // Init members
-            state->render = std::make_unique<mirror>(hwnd);
-        }
-        SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
+        auto udata = reinterpret_cast<user_data_pointer>(param->lpCreateParams) >> must::non_null;
+
+        // Prepare parameters
+        auto monitor_info = ::MONITORINFO{ /* cbSize */ sizeof(::MONITORINFO)};
+        auto & rect = monitor_info.rcMonitor;
+        GetMonitorInfo(::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor_info) >> must::done;
+        auto top = static_cast<int>(rect.top);
+        auto left = static_cast<int>(rect.left);
+        auto width = static_cast<UINT>(rect.right - rect.left);
+        auto height = static_cast<UINT>(rect.bottom - rect.top);
+
+        // Update members
+        udata->state.update_monitor_size(width, height);
+        udata->render = std::make_unique<mirror>(hwnd, width, height);
+        udata->render->on_update(ext::to_aligned_regular_triangle(udata->state));
+
+        // Save udata as user data of current window
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(udata));
+
+        // Mark white (255, 255, 255) as transparent color (our background is black)
+        SetLayeredWindowAttributes(hwnd, RGB(255, 255, 255), 0, LWA_COLORKEY) >> must::done;
+
+        // Resize current window to fullscreen
+        SetWindowPos(hwnd, 0, left, top, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED) >> must::done;
+        
+        // Exclude current window from screen capture (require version >= Windows 10 Version 2004)
+        //SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) >> must::done;
         return 0;
     }
     case WM_CLOSE:
@@ -79,11 +106,10 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
     {
     case WM_MOUSEWHEEL:
     {
-        auto & v = state.viewport_vertices();
-        auto rect = RECT{v[2][0], v[0][1], v[1][0], v[1][1]};
-
+        auto rect = ext::to_bounding_rect(state);
         auto delta = GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
         state.on_length_changed(delta);
+        render.on_update(ext::to_aligned_regular_triangle(state));
 
         // About mouse events
         // - https://learn.microsoft.com/en-us/windows/win32/learnwin32/other-mouse-operations
@@ -94,33 +120,45 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
     }
     case WM_LBUTTONDOWN:
     {
-        auto x = GET_X_LPARAM(lparam);
-        auto y = GET_Y_LPARAM(lparam);
-        state.on_start_moving(x, y);
-
-        SetCapture(hwnd); // Support moving outside our window
+        if (!state.is_moving())
+        {
+            auto x = GET_X_LPARAM(lparam);
+            auto y = GET_Y_LPARAM(lparam);
+            state.on_start_moving(x, y);
+            SetCapture(hwnd); // Allow cursor moving outside our window
+        }
         return 0;
     }
     case WM_MOUSEMOVE:
     {
         if (state.is_moving())
         {
-            auto & v = state.viewport_vertices();
-            auto rect = RECT{v[2][0], v[0][1], v[1][0], v[1][1]};
+            auto rect = ext::to_bounding_rect(state);
 
             auto x = GET_X_LPARAM(lparam);
             auto y = GET_Y_LPARAM(lparam);
             state.on_moving(x, y);
+            render.on_update(ext::to_aligned_regular_triangle(state));
 
-            InvalidateRect(hwnd, &rect, true);
+            InvalidateRect(hwnd, &rect, true) >> must::done;
         }
         return 0;
     }
     case WM_LBUTTONUP:
     {
-        state.on_stop_moving();
+        if (state.is_moving())
+        {
+            state.on_stop_moving();
+            ReleaseCapture();
 
-        ReleaseCapture();
+            auto rect = ext::to_bounding_rect(state);
+            InvalidateRect(hwnd, &rect, true) >> must::done;
+        }
+        return 0;
+    }
+    case WM_RBUTTONUP:
+    {
+        DestroyWindow(hwnd);
         return 0;
     }
     case WM_KEYDOWN: // Handle keyboard input
@@ -137,16 +175,16 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
     case WM_PAINT: // Paint
     {
         // Prepare a triangle
-        auto & positions = state.viewport_vertices();
-        auto vertices = std::array<POINT, 3>{};
-        static_assert(sizeof positions == sizeof vertices);
-        std::memcpy(vertices.data(), positions.data(), sizeof(positions));
+        auto & vertices = state.viewport_vertices();
+        auto points = std::array<POINT, 3>{};
+        static_assert(sizeof vertices == sizeof points);
+        std::memcpy(points.data(), vertices.data(), sizeof(vertices));
 
-        // Repaint mask (click through area)
+        // Prepare to repaint transparent area with gdi
         auto ps = PAINTSTRUCT{};
         auto hdc = BeginPaint(hwnd, &ps);
         SetDCBrushColor(hdc, RGB(255, 255, 255));
-        Polygon(hdc, vertices.data(), static_cast<int>(vertices.size()));
+        Polygon(hdc, points.data(), static_cast<int>(points.size()));
         EndPaint(hwnd, &ps);
 
         // Repaint screen
@@ -163,7 +201,7 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
             // Update
             state.update_monitor_size(width, height);
             render.on_update(ext::to_aligned_regular_triangle(state));
-            render.on_resize();
+            render.on_resize(width, height);
             // Repaint
             InvalidateRect(hwnd, nullptr, true);
         }
@@ -192,22 +230,27 @@ auto wWinMain(
     auto user_data = app::data{};
 
     // Create a window class
+    //
+    // Refer to
     // https://learn.microsoft.com/en-us/windows/win32/learnwin32/learn-to-program-for-windows
     auto clazz = WNDCLASS{};
-    clazz.style = CS_HREDRAW | CS_VREDRAW; // Repaint if window got moved or size changed
+    clazz.style = CS_HREDRAW | CS_VREDRAW; // Repaint if window got moved or size changed (optional)
     clazz.lpfnWndProc = main_window_message_handler;
     clazz.hInstance = instance;
     clazz.hIcon = LoadIcon(nullptr, IDI_WINLOGO);
     clazz.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    clazz.hbrBackground = static_cast<HBRUSH>(::GetStockObject(BLACK_BRUSH)); // Handle WM_ERASEBKGND
     clazz.lpszClassName = class_name;
     RegisterClass(&clazz);
 
     // Create a fullscreen window
+    //
+    // Note: finally i give up using WS_EX_NOREDIRECTIONBITMAP in order to allow
+    // partial click-through-able.
     auto style = WS_POPUP & ~(WS_CAPTION | WS_THICKFRAME);
     auto extended_style
-        = (WS_EX_NOREDIRECTIONBITMAP /* Disable redirection surface */ | WS_EX_TOPMOST) &
+        = (WS_EX_LAYERED | WS_EX_TOPMOST) &
         ~ (WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
-
     auto window = CreateWindowEx(
         extended_style,
         clazz.lpszClassName,
@@ -222,14 +265,7 @@ auto wWinMain(
         clazz.hInstance,
         &user_data) >> must::non_null;
 
-    // Update width, height and position and Show the window
-    auto monitor_info = MONITORINFO{ /* cbSize */ sizeof(::MONITORINFO)};
-    GetMonitorInfo(::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor_info) >> must::done;
-    auto monitor_left = static_cast<int>(monitor_info.rcMonitor.left);
-    auto monitor_top = static_cast<int>(monitor_info.rcMonitor.top);
-    auto monitor_width = static_cast<int>(monitor_info.rcMonitor.right - monitor_info.rcMonitor.left);
-    auto monitor_height = static_cast<int>(monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top);
-    SetWindowPos(window, 0, monitor_left, monitor_top, monitor_width, monitor_height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED) >> must::done;
+    // Show the window
     ShowWindow(window, show);
 
     // Run the message loop.

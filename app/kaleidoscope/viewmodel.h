@@ -25,7 +25,7 @@ namespace viewmodel
             is_dragging = true;
         }
 
-        auto on_moving(std::integral auto x, std::integral auto y)
+        auto on_moving(std::integral auto x, std::integral auto y) -> void
         {
             if (is_dragging)
             {
