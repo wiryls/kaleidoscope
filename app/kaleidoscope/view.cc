@@ -14,13 +14,13 @@
 
 namespace ext
 {
-    auto inline to_bounding_rect(viewmodel::state<LONG> const & state) -> RECT
+    auto static inline to_bounding_rect(viewmodel::state<LONG> const & state) -> RECT
     {
         auto & v = state.viewport_vertices();
         return RECT{v[2][0], v[0][1], v[1][0], v[1][1]};
     }
 
-    auto inline to_aligned_regular_triangle(viewmodel::state<LONG> const & state) -> mirror::aligned_regular_triangle
+    auto static inline to_aligned_regular_triangle(viewmodel::state<LONG> const & state) -> mirror::aligned_regular_triangle
     {
         auto top = state.triangle_top();
         auto out = mirror::aligned_regular_triangle{};
@@ -36,17 +36,18 @@ namespace app
     struct data
     {
         viewmodel::state<LONG> state{};
-        std::unique_ptr<mirror> render{ nullptr };
+        std::unique_ptr<mirror> render{nullptr};
     };
 }
 
-auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) -> LRESULT
+auto static message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) -> LRESULT
 {
     // Preparation
     using namespace aux;
     using user_data_pointer = app::data *;
 
-    // Life-time related message
+    /////////////////////////////////////////////////////////////////////
+    /// Life-time related
     auto user_data = user_data_pointer{};
     switch (umsg)
     {
@@ -77,9 +78,6 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
 
         // Resize current window to fullscreen
         SetWindowPos(hwnd, 0, left, top, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED) >> must::done;
-        
-        // Exclude current window from screen capture (require version >= Windows 10 Version 2004)
-        //SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) >> must::done;
         return 0;
     }
     case WM_CLOSE:
@@ -91,7 +89,8 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
     {
         PostQuitMessage(0);
         return 0;
-    }}
+    }
+    }
 
     // Ignore if not ready
     if (user_data = reinterpret_cast<user_data_pointer>(::GetWindowLongPtr(hwnd, GWLP_USERDATA)); user_data == nullptr)
@@ -99,7 +98,8 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
         return DefWindowProc(hwnd, umsg, wparam, lparam);
     }
 
-    // Event related message
+    /////////////////////////////////////////////////////////////////////
+    /// Life-time related
     auto & state = user_data->state;
     auto & render = *user_data->render.get();
     switch (umsg)
@@ -169,7 +169,8 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
         {
             DestroyWindow(hwnd);
             break;
-        }}
+        }
+        }
         return 0;
     }
     case WM_PAINT: // Paint
@@ -210,7 +211,8 @@ auto main_window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
     default:
     {
         return DefWindowProc(hwnd, umsg, wparam, lparam);
-    }}
+    }
+    }
 }
 
 auto wWinMain(
@@ -235,7 +237,7 @@ auto wWinMain(
     // https://learn.microsoft.com/en-us/windows/win32/learnwin32/learn-to-program-for-windows
     auto clazz = WNDCLASS{};
     clazz.style = CS_HREDRAW | CS_VREDRAW; // Repaint if window got moved or size changed (optional)
-    clazz.lpfnWndProc = main_window_message_handler;
+    clazz.lpfnWndProc = message_handler;
     clazz.hInstance = instance;
     clazz.hIcon = LoadIcon(nullptr, IDI_WINLOGO);
     clazz.hCursor = LoadCursor(nullptr, IDC_ARROW);

@@ -1,4 +1,5 @@
-//Texture2D<float3> tile : t0;
+// BGRA texture
+Texture2D<float4> screenshot : register(t0);
 //SamplerState s0;
 
 float4 main(float2 tex : TEXCOORD) : SV_TARGET

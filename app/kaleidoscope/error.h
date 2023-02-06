@@ -10,6 +10,9 @@
 
 namespace must
 {
+    template<typename T>
+    concept char_type = std::same_as<typename std::char_traits<T>::char_type, T>;
+
     auto constexpr done = [](std::convertible_to<BOOL> auto && value)
     {
         if (static_cast<bool>(value))
@@ -32,6 +35,18 @@ namespace must
         // see: https://learn.microsoft.com/en-us/cpp/build/configure-cmake-debugging-sessions?view=msvc-170#launchvsjson-reference
 
         throw std::system_error(code, std::system_category());
+    };
+
+    auto constexpr done_with = []<char_type T>(T const * message)
+    {
+        return [=](std::convertible_to<BOOL> auto && value)
+        {
+            if (static_cast<bool>(value))
+                return std::forward<decltype(value)>(value);
+
+            OutputDebugString(message);
+            throw std::runtime_error(message);
+        };
     };
 
     auto constexpr non_null = []<typename T>(T * value)

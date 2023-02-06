@@ -133,13 +133,56 @@ namespace make
         // Done
         return S_OK;
     }
+
+    auto static shared_texture2d(
+        ComPtr<ID3D11Device> const & device,
+        ComPtr<ID3D11Texture2D> & output,
+        HANDLE & handle,
+        UINT width,
+        UINT height) -> HRESULT
+    {
+        // Create a texture for screenshot
+        //
+        // Format must be DXGI_FORMAT_B8G8R8A8_UNORM
+        // MiscFlags must be D3D11_RESOURCE_MISC_SHARED_NTHANDLE
+        auto desc = D3D11_TEXTURE2D_DESC{};
+        desc.Width = width;
+        desc.Height = height;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.SampleDesc = {1, 0};
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+        auto hr = device->CreateTexture2D(&desc, nullptr, &output);
+
+        // Create a shared handle
+        auto resource = ComPtr<IDXGIResource1>{};
+        if (SUCCEEDED(hr))
+            hr = output.As(&resource);
+
+        if (SUCCEEDED(hr))
+        {
+            if (handle != nullptr)
+            {
+                CloseHandle(handle);
+                handle = nullptr;
+            }
+            hr = resource->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, &handle);
+        }
+
+        return hr;
+    }
 }
 
+// Details
 struct mirror::core
 {
 public:
 
     core(HWND window, UINT width, UINT height)
+        : window_instance(window)
     {
         // Prepare
         using namespace aux;
@@ -199,6 +242,9 @@ public:
 
             // Create an IDXGIDuplicateOutput
             output->DuplicateOutput(device11.Get(), &output_duplication) >> must::succeed;
+
+            // Create other resource
+            make::shared_texture2d(device11, output_texture, shared_texture_handle, width, height) >> must::succeed;
         }
 
         // Create device, command queue and command allocator
@@ -550,6 +596,11 @@ public:
             index_buffer_view.SizeInBytes = sizeof(indexes);
         }
 
+        // Create the texture
+        {
+            device->OpenSharedHandle(shared_texture_handle, IID_PPV_ARGS(&screenshot_texture)) >> must::succeed;
+        }
+
         /////////////////////////////////////////////////////////////////////
         /// Synchronization objects
 
@@ -564,6 +615,8 @@ public:
     ~core()
     {
         wait_for_previous_frame();
+        if (shared_texture_handle != nullptr)
+            CloseHandle(shared_texture_handle);
         if (fence_event != nullptr)
             CloseHandle(fence_event);
     }
@@ -583,6 +636,81 @@ public:
 
         // Refer to:
         // https://github.com/microsoft/DirectX-Graphics-Samples/blob/0aa79bad78992da0b6a8279ddb9002c1753cb849/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.cpp#L320-L340
+    }
+
+    auto update_screenshot() -> void
+    {
+        using namespace aux;
+        using wrl::ComPtr;
+
+        // Note:
+        //
+        // > For performance reasons, we recommend that you release the frame
+        // > just before you call the IDXGIOutputDuplication::AcquireNextFrame
+        // > method to acquire the next frame.
+        //
+        // Refer to
+        // https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgioutputduplication-releaseframe
+        
+        switch (auto hr = output_duplication->ReleaseFrame(); hr)
+        {
+        case DXGI_ERROR_ACCESS_LOST:
+            // Need to create a new DuplicateOutput
+            //
+            // Refer to
+            // https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nn-dxgi1_2-idxgioutputduplication
+            // https://stackoverflow.com/a/31238973
+            output->DuplicateOutput(device11.Get(), &output_duplication) >> must::succeed;
+            break;
+
+        case DXGI_ERROR_INVALID_CALL:
+            // Already released, so ignore it
+            break;
+
+        default:
+            hr >> must::succeed;
+            break;
+        }
+
+        auto hr = S_OK;
+        auto frame_info = DXGI_OUTDUPL_FRAME_INFO{};
+        auto frame_resource = ComPtr<IDXGIResource>{};
+        if (hr = output_duplication->AcquireNextFrame(0, &frame_info, &frame_resource); hr == DXGI_ERROR_ACCESS_LOST)
+        {
+            // Retry AcquireNextFrame once
+            output->DuplicateOutput(device11.Get(), &output_duplication) >> must::succeed;
+            hr = output_duplication->AcquireNextFrame(0, &frame_info, &frame_resource);
+        }
+
+        if (FAILED(hr) && hr != DXGI_ERROR_WAIT_TIMEOUT)
+        {
+            hr >> must::succeed;
+        }
+        else if (hr == DXGI_ERROR_WAIT_TIMEOUT || frame_info.LastPresentTime.QuadPart == 0)
+        {
+            // Zero LastPresentTime means there is nothing changed, no need to update.
+            //
+            // Refer to
+            // https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/ns-dxgi1_2-dxgi_outdupl_frame_info#members
+            return;
+        }
+
+        auto screenshot = ComPtr<ID3D11Texture2D>{};
+        frame_resource.As(&screenshot) >> must::succeed;
+
+        // Maybe resize
+        auto source = D3D11_TEXTURE2D_DESC{};
+        screenshot->GetDesc(&source);
+        auto target = D3D11_TEXTURE2D_DESC{};
+        output_texture->GetDesc(&target);
+        if (source.Width != target.Width || source.Height != target.Height)
+        {
+            make::shared_texture2d(device11, output_texture, shared_texture_handle, source.Width, source.Height) >> must::succeed;
+            device->OpenSharedHandle(shared_texture_handle, IID_PPV_ARGS(&screenshot_texture)) >> must::succeed;
+        }
+
+        // Copy
+        context11->CopyResource(output_texture.Get(), screenshot.Get());
     }
 
     auto on_resize(UINT width, UINT height) -> void
@@ -612,6 +740,10 @@ public:
         make::render_target_views(device, swap_chain, render_target_view_heap, render_targets) >> must::succeed;
         render_target_view_descriptor_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
         back_buffer_index = swap_chain->GetCurrentBackBufferIndex();
+
+        // 6. Update screenshot texture
+        make::shared_texture2d(device11, output_texture, shared_texture_handle, width, height) >> must::succeed;
+        device->OpenSharedHandle(shared_texture_handle, IID_PPV_ARGS(&screenshot_texture)) >> must::succeed;
     }
 
     auto on_update(aligned_regular_triangle const & triangle) -> void
@@ -623,17 +755,25 @@ public:
     auto on_render() -> void
     {
         using namespace aux;
-
-        // TODO:
-        // get the screen shot from OutputDuplication
+        using wrl::ComPtr;
 
         // Wait until done
         wait_for_previous_frame();
         back_buffer_index = swap_chain->GetCurrentBackBufferIndex();
 
+        // Grab a screenshot from OutputDuplication
+        // Exclude current window from screen capture (require version >= Windows 10 Version 2004)
+        SetWindowDisplayAffinity(window_instance, WDA_EXCLUDEFROMCAPTURE) >> must::done;
+        update_screenshot();
+        SetWindowDisplayAffinity(window_instance, WDA_NONE) >> must::done;
+
+        // TODO:
+        // ready to use screenshot_texture
+        
+
         // Reset command list
         command_allocator->Reset() >> must::succeed;
-        command_list->Reset(command_allocator.Get(), pipeline_state.Get());
+        command_list->Reset(command_allocator.Get(), pipeline_state.Get()) >> must::succeed;
 
         // Setup command list
         command_list->SetGraphicsRootSignature(root_signature.Get());
@@ -715,8 +855,9 @@ public:
     };
 
 public:
+    HWND window_instance;
 
-    // D3D11 Device
+    // D3D11 Device and OutputDuplication
     //
     // As IDXGIOutputDuplication is not supported on D3D12, we need to maintain a
     // stand-alone D3D11 device. Hope to remove it once supported.
@@ -727,6 +868,8 @@ public:
     wrl::ComPtr<ID3D11DeviceContext> context11{};
     wrl::ComPtr<IDXGIOutput1> output{};
     wrl::ComPtr<IDXGIOutputDuplication> output_duplication{};
+    wrl::ComPtr<ID3D11Texture2D> output_texture{};
+    HANDLE shared_texture_handle{};
 
     // Device and Command Queue
     wrl::ComPtr<ID3D12Device> device{};
@@ -762,6 +905,8 @@ public:
 
     wrl::ComPtr<ID3D12Resource> index_buffer{};
     D3D12_INDEX_BUFFER_VIEW index_buffer_view{};
+
+    wrl::ComPtr<ID3D12Resource> screenshot_texture{};
 
     // Synchronization objects
     HANDLE fence_event{};
