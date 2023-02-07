@@ -100,7 +100,7 @@ namespace make
     auto static render_target_views(
         ComPtr<ID3D12Device> const & device,
         ComPtr<IDXGISwapChain3> const & swap_chain,
-        ComPtr<ID3D12DescriptorHeap> & render_target_view_heap, /* out */
+        ComPtr<ID3D12DescriptorHeap> & render_target_view_descriptor_heap, /* out */
         std::array<ComPtr<ID3D12Resource>, 2> & render_targets  /* out */) -> HRESULT
     {
         // Refer to:
@@ -108,16 +108,16 @@ namespace make
 
         // Create a descriptor heap for render target views
         auto desc = D3D12_DESCRIPTOR_HEAP_DESC{};
-        desc.NumDescriptors = static_cast<UINT>(render_targets.size());
         desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        desc.NumDescriptors = static_cast<UINT>(render_targets.size());
         desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        auto hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&render_target_view_heap));
+        auto hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&render_target_view_descriptor_heap));
         if (FAILED(hr))
             return hr;
 
         // Create two render target views for swap chain
         auto offset = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-        auto handle = render_target_view_heap->GetCPUDescriptorHandleForHeapStart();
+        auto handle = render_target_view_descriptor_heap->GetCPUDescriptorHandleForHeapStart();
         for (auto index = UINT{}; auto & target : render_targets)
         {
             hr = swap_chain->GetBuffer(index, IID_PPV_ARGS(&target));
@@ -134,10 +134,15 @@ namespace make
         return S_OK;
     }
 
+    // Create a D3D11 texture and share it to D3D12 device
     auto static shared_texture2d(
-        ComPtr<ID3D11Device> const & device,
-        ComPtr<ID3D11Texture2D> & output,
-        HANDLE & handle,
+        ComPtr<ID3D11Device> const & device11,
+        ComPtr<ID3D12Device> const & device12,
+        ComPtr<ID3D12DescriptorHeap> const & heap,
+        UINT heap_handle_offset,
+        ComPtr<ID3D11Texture2D> & texture,
+        ComPtr<ID3D12Resource> & resource,
+        HANDLE & shared_handle,
         UINT width,
         UINT height) -> HRESULT
     {
@@ -155,21 +160,41 @@ namespace make
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
-        auto hr = device->CreateTexture2D(&desc, nullptr, &output);
+        auto hr = device11->CreateTexture2D(&desc, nullptr, &texture);
 
         // Create a shared handle
-        auto resource = ComPtr<IDXGIResource1>{};
+        auto shared_resource = ComPtr<IDXGIResource1>{};
         if (SUCCEEDED(hr))
-            hr = output.As(&resource);
+            hr = texture.As(&shared_resource);
 
         if (SUCCEEDED(hr))
         {
-            if (handle != nullptr)
+            if (shared_handle != nullptr)
             {
-                CloseHandle(handle);
-                handle = nullptr;
+                CloseHandle(shared_handle);
+                shared_handle = nullptr;
             }
-            hr = resource->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, &handle);
+            hr = shared_resource->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, &shared_handle);
+        }
+
+        if (SUCCEEDED(hr))
+        {
+            hr = device12->OpenSharedHandle(shared_handle, IID_PPV_ARGS(&resource));
+        }
+
+        if (SUCCEEDED(hr))
+        {
+            auto view_desc = D3D12_SHADER_RESOURCE_VIEW_DESC{};
+            view_desc.Format = desc.Format;
+            view_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            view_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING; // no extra mapping
+            view_desc.Texture2D.MostDetailedMip = 0; // most detailed mipmap level to use
+            view_desc.Texture2D.MipLevels = desc.MipLevels;
+            view_desc.Texture2D.ResourceMinLODClamp = 0.f; // minimum mipmap level
+
+            auto offset = heap->GetCPUDescriptorHandleForHeapStart();
+            offset.ptr += heap_handle_offset;
+            device12->CreateShaderResourceView(resource.Get(), &view_desc, offset);
         }
 
         return hr;
@@ -183,6 +208,8 @@ public:
 
     core(HWND window, UINT width, UINT height)
         : window_instance(window)
+        , window_width(width)
+        , window_height(height)
     {
         // Prepare
         using namespace aux;
@@ -220,31 +247,6 @@ public:
             auto flag = env::is_debug() ? DXGI_CREATE_FACTORY_DEBUG : UINT{};
             CreateDXGIFactory2(flag, IID_PPV_ARGS(&factory)) >> must::succeed;
             make::recommended_adapter(factory, adapter) >> must::succeed;
-        }
-
-        // Create an IDXGIOutput
-        {
-            // Device and context
-            D3D11CreateDevice(
-                adapter.Get(),
-                D3D_DRIVER_TYPE_UNKNOWN,
-                nullptr,
-                0,
-                feature_levels.data(),
-                static_cast<UINT>(feature_levels.size()),
-                D3D11_SDK_VERSION,
-                &device11,
-                nullptr,
-                &context11) >> must::succeed;
-
-            // Create an IDXGIOutput1
-            make::inferenced_output(window, adapter, output) >> must::succeed;
-
-            // Create an IDXGIDuplicateOutput
-            output->DuplicateOutput(device11.Get(), &output_duplication) >> must::succeed;
-
-            // Create other resource
-            make::shared_texture2d(device11, output_texture, shared_texture_handle, width, height) >> must::succeed;
         }
 
         // Create device, command queue and command allocator
@@ -299,7 +301,7 @@ public:
         // - Update descriptor size and frame index
         {
             make::viewport_and_scissor_rect(swap_chain, viewport, scissor_rect) >> must::succeed;
-            make::render_target_views(device, swap_chain, render_target_view_heap, render_targets) >> must::succeed;
+            make::render_target_views(device, swap_chain, render_target_view_descriptor_heap, render_targets) >> must::succeed;
             render_target_view_descriptor_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
             back_buffer_index = swap_chain->GetCurrentBackBufferIndex();
         }
@@ -318,6 +320,29 @@ public:
         }
 
         /////////////////////////////////////////////////////////////////////
+        /// Create an IDXGIOutput
+        {
+            // Device and context
+            D3D11CreateDevice(
+                adapter.Get(),
+                D3D_DRIVER_TYPE_UNKNOWN,
+                nullptr,
+                0,
+                feature_levels.data(),
+                static_cast<UINT>(feature_levels.size()),
+                D3D11_SDK_VERSION,
+                &device11,
+                nullptr,
+                &context11) >> must::succeed;
+
+            // Create an IDXGIOutput1
+            make::inferenced_output(window, adapter, output) >> must::succeed;
+
+            // Create an IDXGIDuplicateOutput
+            output->DuplicateOutput(device11.Get(), &output_duplication) >> must::succeed;
+        }
+
+        /////////////////////////////////////////////////////////////////////
         /// Setup resources
 
         // Create a root signature
@@ -325,17 +350,50 @@ public:
         // "one for every different binding configuration an application needs."
         // Refer to: https://learn.microsoft.com/en-us/windows/win32/direct3d12/resource-binding-flow-of-control#resource-binding-flow-of-control
         {
-            auto ranges = std::array<D3D12_DESCRIPTOR_RANGE1, 1>{};
-            ranges[0].BaseShaderRegister = 0;
-            ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
-            ranges[0].NumDescriptors = 1;
-            ranges[0].RegisterSpace = 0;
-            ranges[0].OffsetInDescriptorsFromTableStart = 0;
-            ranges[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
+            // Prepare a static sampler for pixel shader
+            //
+            // Refer to
+            // https://www.3dgep.com/learning-directx-12-4/#Texture_Sampler
+            // https://github.com/microsoft/DirectX-Graphics-Samples/blob/a79e01c4c39e6d40f4b078688ff95814d166d34f/Samples/Desktop/D3D12HelloWorld/src/HelloTexture/D3D12HelloTexture.cpp#L165-L178
+            auto samplers = std::array<D3D12_STATIC_SAMPLER_DESC, 1>{};
+            samplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+            samplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+            samplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+            samplers[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+            samplers[0].MipLODBias = 0;
+            samplers[0].MaxAnisotropy = 0;
+            samplers[0].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+            samplers[0].BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+            samplers[0].MinLOD = 0.0f;
+            samplers[0].MaxLOD = D3D12_FLOAT32_MAX;
+            samplers[0].ShaderRegister = 0;
+            samplers[0].RegisterSpace = 0;
+            samplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
+            // Prepare ranges to maintain descriptors of CBV, SRV and UAV
+            auto ranges = std::array<D3D12_DESCRIPTOR_RANGE1, 2>{};
+            {
+                // constant buffer
+                ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV; // Constant buffer view
+                ranges[0].NumDescriptors = 1;                          // There will be one descriptor
+                ranges[0].BaseShaderRegister = 0;                      // Map to "register(t0)"
+                ranges[0].RegisterSpace = 0;                           // Map to "register(_, space0)"
+                ranges[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
+                ranges[0].OffsetInDescriptorsFromTableStart = 0;
+
+                // Prepare for shader resource view (texture)
+                ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+                ranges[1].NumDescriptors = 1;
+                ranges[1].BaseShaderRegister = 0;
+                ranges[1].RegisterSpace = 0;
+                ranges[1].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
+                ranges[1].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+            }
+
+            // Create parameters
             auto parameters = std::array<D3D12_ROOT_PARAMETER1, 1>{};
             parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-            parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+            parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
             parameters[0].DescriptorTable.NumDescriptorRanges = static_cast<UINT>(ranges.size());
             parameters[0].DescriptorTable.pDescriptorRanges = ranges.data();
 
@@ -347,17 +405,16 @@ public:
                 = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
                 | D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS
                 | D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS
-                | D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS
-                | D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
+                | D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
 
-            // Could use "device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, ...)" to check if 1_1 is supported
+            // We could use "device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, ...)" to check if 1_1 is supported
             auto desc = D3D12_VERSIONED_ROOT_SIGNATURE_DESC{};
             desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1; // tagged union of 1_0 and 1_1
             desc.Desc_1_1.Flags = flag;
             desc.Desc_1_1.NumParameters = static_cast<UINT>(parameters.size());
             desc.Desc_1_1.pParameters = parameters.data();
-            desc.Desc_1_1.NumStaticSamplers = 0;
-            desc.Desc_1_1.pStaticSamplers = nullptr;
+            desc.Desc_1_1.NumStaticSamplers = static_cast<UINT>(samplers.size());
+            desc.Desc_1_1.pStaticSamplers = samplers.data();
 
             auto signature = ComPtr<ID3DBlob>();
             auto error = ComPtr<ID3DBlob>();
@@ -447,23 +504,22 @@ public:
         // Also see
         // https://github.com/microsoft/DirectX-Graphics-Samples/blob/a79e01c4c39e6d40f4b078688ff95814d166d34f/Samples/Desktop/D3D12HelloWorld/src/HelloConstBuffers/D3D12HelloConstBuffers.cpp
         {
-            using type = mirror::aligned_regular_triangle;
-            auto constexpr size = sizeof(type);
+            auto constexpr size = sizeof(triangle_constant_buffer);
             auto constexpr aligned_size = (size + 0xff) & ~0xff; // Required to be 256-byte aligned
 
-            // Create a heap for constant buffer
+            // Create a descriptor heap for our constant buffer and texture
+            auto heap_desc = D3D12_DESCRIPTOR_HEAP_DESC{};
+            heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+            heap_desc.NumDescriptors = 2; // constant buffer + shader resource
+            heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+            device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&descriptor_heap)) >> must::succeed;
+
             auto heap_properties = D3D12_HEAP_PROPERTIES{};
             heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
             heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
             heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
             heap_properties.CreationNodeMask = 1;
             heap_properties.VisibleNodeMask = 1;
-
-            auto heap_desc = D3D12_DESCRIPTOR_HEAP_DESC{};
-            heap_desc.NumDescriptors = 1;
-            heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-            heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-            device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&constant_buffer_heap)) >> must::succeed;
 
             // Create a constant buffer
             //
@@ -494,7 +550,7 @@ public:
             auto constant_buffer_view_desc = D3D12_CONSTANT_BUFFER_VIEW_DESC{};
             constant_buffer_view_desc.BufferLocation = constant_buffer->GetGPUVirtualAddress();
             constant_buffer_view_desc.SizeInBytes = aligned_size;
-            auto constant_buffer_handle = constant_buffer_heap->GetCPUDescriptorHandleForHeapStart();
+            auto constant_buffer_handle = descriptor_heap->GetCPUDescriptorHandleForHeapStart();
             device->CreateConstantBufferView(&constant_buffer_view_desc, constant_buffer_handle);
 
             // Note:
@@ -506,6 +562,9 @@ public:
             // https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12resource-map
             auto range = D3D12_RANGE{};
             constant_buffer->Map(0, &range, reinterpret_cast<void **>(&constant_buffer_data)) >> must::succeed;
+
+            // Update offsets
+            descriptor_heap_offsets = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         }
 
         // Create a vertex buffer (to fill the entire screen)
@@ -596,9 +655,18 @@ public:
             index_buffer_view.SizeInBytes = sizeof(indexes);
         }
 
-        // Create the texture
+        // Create a texture for resource view
         {
-            device->OpenSharedHandle(shared_texture_handle, IID_PPV_ARGS(&screenshot_texture)) >> must::succeed;
+            make::shared_texture2d(
+                device11,
+                device,
+                descriptor_heap,
+                descriptor_heap_offsets,
+                shared_texture,
+                screenshot_texture,
+                shared_texture_handle,
+                width,
+                height) >> must::succeed;
         }
 
         /////////////////////////////////////////////////////////////////////
@@ -702,20 +770,32 @@ public:
         auto source = D3D11_TEXTURE2D_DESC{};
         screenshot->GetDesc(&source);
         auto target = D3D11_TEXTURE2D_DESC{};
-        output_texture->GetDesc(&target);
+        shared_texture->GetDesc(&target);
         if (source.Width != target.Width || source.Height != target.Height)
         {
-            make::shared_texture2d(device11, output_texture, shared_texture_handle, source.Width, source.Height) >> must::succeed;
-            device->OpenSharedHandle(shared_texture_handle, IID_PPV_ARGS(&screenshot_texture)) >> must::succeed;
+            make::shared_texture2d(
+                device11,
+                device,
+                descriptor_heap,
+                descriptor_heap_offsets,
+                shared_texture,
+                screenshot_texture,
+                shared_texture_handle,
+                source.Width,
+                source.Height) >> must::succeed;
         }
 
         // Copy
-        context11->CopyResource(output_texture.Get(), screenshot.Get());
+        context11->CopyResource(shared_texture.Get(), screenshot.Get());
     }
 
     auto on_resize(UINT width, UINT height) -> void
     {
         using namespace aux;
+
+        // 0. Update info
+        window_width = width;
+        window_height = height;
 
         // 1. Wait for command_queue finished
         wait_for_previous_frame();
@@ -728,7 +808,7 @@ public:
         {
             target.Reset();
         }
-        render_target_view_heap.Reset();
+        render_target_view_descriptor_heap.Reset();
 
         // 3. Resize swapchain buffer
         swap_chain->ResizeBuffers(static_cast<UINT>(render_targets.size()), width, height, DXGI_FORMAT_R8G8B8A8_UNORM, 0) >> must::succeed;
@@ -737,19 +817,38 @@ public:
         make::viewport_and_scissor_rect(swap_chain, viewport, scissor_rect) >> must::succeed;
 
         // 5. Create a new DescriptorHeap for render target view, and two render_targets
-        make::render_target_views(device, swap_chain, render_target_view_heap, render_targets) >> must::succeed;
+        make::render_target_views(device, swap_chain, render_target_view_descriptor_heap, render_targets) >> must::succeed;
         render_target_view_descriptor_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
         back_buffer_index = swap_chain->GetCurrentBackBufferIndex();
 
-        // 6. Update screenshot texture
-        make::shared_texture2d(device11, output_texture, shared_texture_handle, width, height) >> must::succeed;
-        device->OpenSharedHandle(shared_texture_handle, IID_PPV_ARGS(&screenshot_texture)) >> must::succeed;
+        // 6. Create a new shared screenshot texture
+        make::shared_texture2d(
+            device11,
+            device,
+            descriptor_heap,
+            descriptor_heap_offsets,
+            shared_texture,
+            screenshot_texture,
+            shared_texture_handle,
+            width,
+            height) >> must::succeed;
     }
 
-    auto on_update(aligned_regular_triangle const & triangle) -> void
+    auto on_update(aligned_regular_triangle const & source) -> void
     {
-        // Update constant buffer
-        std::memcpy(constant_buffer_data, &triangle, sizeof(triangle));
+        // Helper
+        auto constexpr half_sqrt3 = 0.86602540378443864676372317075294f;
+        auto w = static_cast<float>(window_width);
+        auto h = static_cast<float>(window_height);
+
+        // Update constant buffer (normalization)
+        auto target = triangle_constant_buffer{};
+        target.top_x = source.top_x / w;
+        target.top_y = source.top_y / h;
+        target.length = source.length / w;
+        target.height = source.length * half_sqrt3 / h;
+
+        std::memcpy(constant_buffer_data, &target, sizeof(target));
     }
 
     auto on_render() -> void
@@ -762,14 +861,11 @@ public:
         back_buffer_index = swap_chain->GetCurrentBackBufferIndex();
 
         // Grab a screenshot from OutputDuplication
+        //
         // Exclude current window from screen capture (require version >= Windows 10 Version 2004)
         SetWindowDisplayAffinity(window_instance, WDA_EXCLUDEFROMCAPTURE) >> must::done;
         update_screenshot();
-        SetWindowDisplayAffinity(window_instance, WDA_NONE) >> must::done;
-
-        // TODO:
-        // ready to use screenshot_texture
-        
+        //SetWindowDisplayAffinity(window_instance, WDA_NONE) >> must::done;
 
         // Reset command list
         command_allocator->Reset() >> must::succeed;
@@ -780,11 +876,20 @@ public:
         command_list->RSSetViewports(1, &viewport);
         command_list->RSSetScissorRects(1, &scissor_rect);
 
-        auto heaps = std::array<ID3D12DescriptorHeap *, 1>{ constant_buffer_heap.Get()};
-        command_list->SetDescriptorHeaps(static_cast<UINT>(heaps.size()), heaps.data());
-        command_list->SetGraphicsRootDescriptorTable(0, constant_buffer_heap->GetGPUDescriptorHandleForHeapStart());
+        // Setup descriptor heaps
+        //
+        // Note: we don't have any sampler descriptor heaps, so just use it as an array.
+        //
+        // > Only one descriptor heap of each type can be set at one time, which means a maximum
+        // > of 2 heaps (one sampler, one CBV/SRV/UAV) can be set at one time.
+        //
+        // Refer to
+        // https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12graphicscommandlist-setdescriptorheaps
+        // https://stackoverflow.com/a/32145373
+        command_list->SetDescriptorHeaps(1, descriptor_heap.GetAddressOf());
+        command_list->SetGraphicsRootDescriptorTable(0, descriptor_heap->GetGPUDescriptorHandleForHeapStart());
 
-        // Switch to STATE_PRESENT
+        // Switch to STATE_RENDER_TARGET and fill the back buffer
         //
         // Refer to
         // https://github.com/microsoft/DirectXTK12/wiki/Resource-Barriers#swap-chain-resource-states
@@ -797,7 +902,7 @@ public:
         render_target_barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         command_list->ResourceBarrier(1, &render_target_barrier);
 
-        auto handle = render_target_view_heap->GetCPUDescriptorHandleForHeapStart();
+        auto handle = render_target_view_descriptor_heap->GetCPUDescriptorHandleForHeapStart();
         handle.ptr += static_cast<SIZE_T>(back_buffer_index * render_target_view_descriptor_size);
         command_list->OMSetRenderTargets(1, &handle, false, nullptr);
 
@@ -809,7 +914,7 @@ public:
         command_list->IASetIndexBuffer(&index_buffer_view);
         command_list->DrawIndexedInstanced(static_cast<UINT>(indexes.size()), 1, 0, 0, 0);
 
-        // Switch to STATE_RENDER_TARGET
+        // Switch to STATE_PRESENT and present the back buffer
         auto present_barrier = D3D12_RESOURCE_BARRIER{};
         present_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         present_barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
@@ -829,6 +934,14 @@ public:
     }
 
 public:
+    // Define constant buffer layout
+    struct triangle_constant_buffer
+    {
+        float top_x;
+        float top_y;
+        float length;
+        float height;
+    };
 
     // Define the input layout for vertex shader
     auto static inline constexpr input_layout = std::array<D3D12_INPUT_ELEMENT_DESC, 2>
@@ -856,6 +969,28 @@ public:
 
 public:
     HWND window_instance;
+    UINT window_width;
+    UINT window_height;
+
+    // Device and Command Queue
+    wrl::ComPtr<ID3D12Device> device{};
+    wrl::ComPtr<ID3D12DebugDevice> debug_device{};
+    wrl::ComPtr<ID3D12CommandQueue> command_queue{};
+    wrl::ComPtr<ID3D12CommandAllocator> command_allocator{};
+
+    // Swap chain
+    D3D12_VIEWPORT viewport{};
+    D3D12_RECT scissor_rect{};
+    wrl::ComPtr<IDXGISwapChain3> swap_chain{};
+    wrl::ComPtr<ID3D12DescriptorHeap> render_target_view_descriptor_heap{};
+    std::array<wrl::ComPtr<ID3D12Resource>, 2> render_targets{};
+    UINT render_target_view_descriptor_size{};
+    UINT back_buffer_index{};
+
+    // Composition
+    wrl::ComPtr<IDCompositionDevice> composition_device{};
+    wrl::ComPtr<IDCompositionTarget> composition_target{};
+    wrl::ComPtr<IDCompositionVisual> composition_visual{};
 
     // D3D11 Device and OutputDuplication
     //
@@ -868,36 +1003,15 @@ public:
     wrl::ComPtr<ID3D11DeviceContext> context11{};
     wrl::ComPtr<IDXGIOutput1> output{};
     wrl::ComPtr<IDXGIOutputDuplication> output_duplication{};
-    wrl::ComPtr<ID3D11Texture2D> output_texture{};
-    HANDLE shared_texture_handle{};
-
-    // Device and Command Queue
-    wrl::ComPtr<ID3D12Device> device{};
-    wrl::ComPtr<ID3D12DebugDevice> debug_device{};
-    wrl::ComPtr<ID3D12CommandQueue> command_queue{};
-    wrl::ComPtr<ID3D12CommandAllocator> command_allocator{};
-
-    // Swap chain
-    D3D12_VIEWPORT viewport{};
-    D3D12_RECT scissor_rect{};
-    wrl::ComPtr<IDXGISwapChain3> swap_chain{};
-    wrl::ComPtr<ID3D12DescriptorHeap> render_target_view_heap{};
-    std::array<wrl::ComPtr<ID3D12Resource>, 2> render_targets{};
-    UINT render_target_view_descriptor_size{};
-    UINT back_buffer_index{};
-
-    // Composition
-    wrl::ComPtr<IDCompositionDevice> composition_device{};
-    wrl::ComPtr<IDCompositionTarget> composition_target{};
-    wrl::ComPtr<IDCompositionVisual> composition_visual{};
 
     // Resources
     wrl::ComPtr<ID3D12RootSignature> root_signature{};
     wrl::ComPtr<ID3D12PipelineState> pipeline_state{};
+    wrl::ComPtr<ID3D12DescriptorHeap> descriptor_heap{};
     wrl::ComPtr<ID3D12GraphicsCommandList> command_list{};
+    UINT descriptor_heap_offsets{};
 
     wrl::ComPtr<ID3D12Resource> constant_buffer{};
-    wrl::ComPtr<ID3D12DescriptorHeap> constant_buffer_heap{};
     UINT8 * constant_buffer_data{};
 
     wrl::ComPtr<ID3D12Resource> vertex_buffer{};
@@ -906,7 +1020,9 @@ public:
     wrl::ComPtr<ID3D12Resource> index_buffer{};
     D3D12_INDEX_BUFFER_VIEW index_buffer_view{};
 
+    wrl::ComPtr<ID3D11Texture2D> shared_texture{};
     wrl::ComPtr<ID3D12Resource> screenshot_texture{};
+    HANDLE shared_texture_handle{};
 
     // Synchronization objects
     HANDLE fence_event{};
