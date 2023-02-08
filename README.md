@@ -22,7 +22,7 @@ Open the `kaleidoscope.exe`, program will automatically fill the screen with a s
 - Rotate your mouse wheel to resize the selection box.
 - Press ESC or use the right-click menu to exit.
 
-https://user-images.githubusercontent.com/7984500/217583721-a18e0fab-1318-408c-a84c-a31c28f8c04e.mp4
+https://user-images.githubusercontent.com/7984500/217632201-b8e297cf-3540-4726-b808-772ee35adf3d.mp4
 
 Notes:
 
@@ -41,7 +41,7 @@ Compile:
 2. Open the root folder with Visual Studio, or just configure it with CMake.
 3. Wait until CMake configuration finished (during this step, a third-party library will be cloned).
 4. Compile it with Visual Studio or CMake (still use msbuild).
-5. The compiled program may be output to `out\build\x64-Release\app\kaleidoscope`. (depends on CMake configuration)
+5. The compiled program may be output to `out\build\x64-Release\app\kaleidoscope` or `build\app\kaleidoscope\MinSizeRel`. (depends on your CMake configuration)
 
 ## Miscellaneous
 
