@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <windowsx.h>
 
+#include "resource.h"
 #include "tool.h"
 #include "error.h"
 #include "viewmodel.h"
@@ -386,7 +387,7 @@ auto run(HINSTANCE instance, int show) -> void
     clazz.style = CS_HREDRAW | CS_VREDRAW; // Repaint if window got moved or size changed (optional)
     clazz.lpfnWndProc = app::window_message_handler;
     clazz.hInstance = instance;
-    clazz.hIcon = LoadIcon(nullptr, IDI_WINLOGO);
+    clazz.hIcon = LoadIcon(instance, MAKEINTRESOURCE(IDI_ICON1));
     clazz.hCursor = LoadCursor(nullptr, IDC_ARROW);
     clazz.hbrBackground = static_cast<HBRUSH>(::GetStockObject(BLACK_BRUSH)); // Handle WM_ERASEBKGND with black
     clazz.lpszClassName = app::class_name;

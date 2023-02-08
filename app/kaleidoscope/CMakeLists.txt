@@ -30,7 +30,7 @@ endforeach(file)
 
 #[[ executable ]]
 set(source view.cc render.cc)
-set(header tool.h  render.h error.h model.h viewmodel.h)
+set(header tool.h  render.h error.h model.h viewmodel.h resource.h kaleidoscope.rc)
 
 add_executable            (${name} WIN32 ${source} ${header} ${shader} ${BACKWARD_ENABLE})
 add_backward              (${name})

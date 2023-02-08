@@ -96,7 +96,7 @@ float2 reflect(float2 pos)
 float4 main(float2 tex : TEXCOORD) : SV_TARGET
 {
     if (is_inside(tex))
-        return float4(0.1, 0.1, 0.1, 0.1);
+        return float4(0.0, 0.0, 0.0, 0.0);
     else
         return screenshot.Sample(screenshot_sampler, reflect(redirect(tex)));
 }
