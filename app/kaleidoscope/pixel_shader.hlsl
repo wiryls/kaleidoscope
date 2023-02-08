@@ -15,16 +15,25 @@ float cross2(float2 a, float2 b)
     return a.x * b.y - a.y * b.x;
 }
 
-float2 solve(float2 source, float2 bottom, float2 direction)
+bool is_inside(float2 source)
 {
-    // (O - source) x direction = 0
-    // (O + source - 2 * bottom) x top = 0
-    // O = ?
+    float2 left = top + float2(-length * 0.5, height);
+    float2 right = top + float2(length * 0.5, height);
+    return cross2(top - left, source - left) >= 0
+        && cross2(right - top, source - top) >= 0
+        && cross2(left - right, source - right) >= 0;
+}
 
-    float a = cross2(2.0 * bottom - source, top);
-    float b = cross2(source, direction);
-    float k = cross2(direction, top);
-    return (direction * a - top * b) / k;
+float2 solve(float2 source, float2 anchor, float2 mirror, float2 project)
+{
+    // (? - source) x project = 0
+    // (? + source - 2 * anchor) x mirror = 0
+    // return ?
+
+    float a = cross2(source, project);
+    float b = cross2(2.0 * anchor - source, mirror);
+    float k = cross2(mirror, project);
+    return (a * mirror - b * project) / k;
 }
 
 float2 redirect(float2 pos)
@@ -63,7 +72,7 @@ float2 reflect(float2 pos)
     float2 to_top_right = float2(length * 0.5, -height);
 
     float2 left = top - to_top_right;
-    float2 right = top - to_top_right;
+    float2 right = top - to_top_left;
 
     // Repair
     if (cross2(to_top_right, pos - right) > 0)
@@ -75,18 +84,19 @@ float2 reflect(float2 pos)
     // Reflect
     if (cross2(to_top_right, pos - left) < 0)
     {
-        // TODO: fixme
-        pos = solve(pos, left, right - (left + top) * 0.5);
+        pos = solve(pos, left, to_top_right, 0.5 * to_top_right - to_top_left);
     }
     else if (cross2(to_top_left, pos - right) > 0)
     {
-        // TODO: fixme
-        pos = solve(pos, right, left - (right + top) * 0.5);
+        pos = solve(pos, right, to_top_left, 0.5 * to_top_left - to_top_right);
     }
     return pos;
 }
 
 float4 main(float2 tex : TEXCOORD) : SV_TARGET
 {
-    return screenshot.Sample(screenshot_sampler, reflect(redirect(tex)));
+    if (is_inside(tex))
+        return float4(0.1, 0.1, 0.1, 0.1);
+    else
+        return screenshot.Sample(screenshot_sampler, reflect(redirect(tex)));
 }

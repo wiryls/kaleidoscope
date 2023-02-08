@@ -356,7 +356,7 @@ public:
             // https://www.3dgep.com/learning-directx-12-4/#Texture_Sampler
             // https://github.com/microsoft/DirectX-Graphics-Samples/blob/a79e01c4c39e6d40f4b078688ff95814d166d34f/Samples/Desktop/D3D12HelloWorld/src/HelloTexture/D3D12HelloTexture.cpp#L165-L178
             auto samplers = std::array<D3D12_STATIC_SAMPLER_DESC, 1>{};
-            samplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+            samplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
             samplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
             samplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
             samplers[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
@@ -505,7 +505,7 @@ public:
         // https://github.com/microsoft/DirectX-Graphics-Samples/blob/a79e01c4c39e6d40f4b078688ff95814d166d34f/Samples/Desktop/D3D12HelloWorld/src/HelloConstBuffers/D3D12HelloConstBuffers.cpp
         {
             auto constexpr size = sizeof(triangle_constant_buffer);
-            auto constexpr aligned_size = (size + 0xff) & ~0xff; // Required to be 256-byte aligned
+            auto constexpr aligned_size = (size + 0xff) & ~0xff; // Required to be 256-byte (D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT) aligned
 
             // Create a descriptor heap for our constant buffer and texture
             auto heap_desc = D3D12_DESCRIPTOR_HEAP_DESC{};
@@ -564,7 +564,8 @@ public:
             constant_buffer->Map(0, &range, reinterpret_cast<void **>(&constant_buffer_data)) >> must::succeed;
 
             // Update offsets
-            descriptor_heap_offsets = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+            descriptor_heap_offsets[0] = 0;
+            descriptor_heap_offsets[1] = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         }
 
         // Create a vertex buffer (to fill the entire screen)
@@ -661,7 +662,7 @@ public:
                 device11,
                 device,
                 descriptor_heap,
-                descriptor_heap_offsets,
+                descriptor_heap_offsets[1],
                 shared_texture,
                 screenshot_texture,
                 shared_texture_handle,
@@ -743,6 +744,7 @@ public:
         auto hr = S_OK;
         auto frame_info = DXGI_OUTDUPL_FRAME_INFO{};
         auto frame_resource = ComPtr<IDXGIResource>{};
+
         if (hr = output_duplication->AcquireNextFrame(0, &frame_info, &frame_resource); hr == DXGI_ERROR_ACCESS_LOST)
         {
             // Retry AcquireNextFrame once
@@ -777,7 +779,7 @@ public:
                 device11,
                 device,
                 descriptor_heap,
-                descriptor_heap_offsets,
+                descriptor_heap_offsets[1],
                 shared_texture,
                 screenshot_texture,
                 shared_texture_handle,
@@ -826,7 +828,7 @@ public:
             device11,
             device,
             descriptor_heap,
-            descriptor_heap_offsets,
+            descriptor_heap_offsets[1],
             shared_texture,
             screenshot_texture,
             shared_texture_handle,
@@ -861,11 +863,7 @@ public:
         back_buffer_index = swap_chain->GetCurrentBackBufferIndex();
 
         // Grab a screenshot from OutputDuplication
-        //
-        // Exclude current window from screen capture (require version >= Windows 10 Version 2004)
-        SetWindowDisplayAffinity(window_instance, WDA_EXCLUDEFROMCAPTURE) >> must::done;
         update_screenshot();
-        //SetWindowDisplayAffinity(window_instance, WDA_NONE) >> must::done;
 
         // Reset command list
         command_allocator->Reset() >> must::succeed;
@@ -878,7 +876,8 @@ public:
 
         // Setup descriptor heaps
         //
-        // Note: we don't have any sampler descriptor heaps, so just use it as an array.
+        // Note: we don't have any sampler descriptor heaps, so just use "descriptor_heap" as an
+        // array.
         //
         // > Only one descriptor heap of each type can be set at one time, which means a maximum
         // > of 2 heaps (one sampler, one CBV/SRV/UAV) can be set at one time.
@@ -1009,7 +1008,7 @@ public:
     wrl::ComPtr<ID3D12PipelineState> pipeline_state{};
     wrl::ComPtr<ID3D12DescriptorHeap> descriptor_heap{};
     wrl::ComPtr<ID3D12GraphicsCommandList> command_list{};
-    UINT descriptor_heap_offsets{};
+    std::array<UINT, 2> descriptor_heap_offsets{};
 
     wrl::ComPtr<ID3D12Resource> constant_buffer{};
     UINT8 * constant_buffer_data{};
@@ -1036,6 +1035,7 @@ public:
 // - https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component
 // - https://learn.microsoft.com/en-us/samples/microsoft/directx-graphics-samples/d3d12-hello-world-samples-win32/
 // - https://learn.microsoft.com/en-us/archive/msdn-magazine/2014/june/windows-with-c-high-performance-window-layering-using-the-windows-composition-engine
+// - https://logins.github.io/graphics/2020/07/31/DX12ResourceHandling.html
 
 mirror::~mirror() = default;
 mirror::mirror(HWND window, std::uint32_t width, std::uint32_t height)

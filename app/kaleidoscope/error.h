@@ -37,18 +37,6 @@ namespace must
         throw std::system_error(code, std::system_category());
     };
 
-    auto constexpr done_with = []<char_type T>(T const * message)
-    {
-        return [=](std::convertible_to<BOOL> auto && value)
-        {
-            if (static_cast<bool>(value))
-                return std::forward<decltype(value)>(value);
-
-            OutputDebugString(message);
-            throw std::runtime_error(message);
-        };
-    };
-
     auto constexpr non_null = []<typename T>(T * value)
     {
         done(value != nullptr);

@@ -109,12 +109,24 @@ namespace viewmodel
             return viewport.side();
         }
 
+        auto option_is_excluded_from_capture(bool toggle = false) -> bool
+        {
+            if (toggle)
+            {
+                is_excluded_from_capture = !is_excluded_from_capture;
+            }
+            return is_excluded_from_capture;
+        }
+
     private:
-        // model
+        // Model
         model_type viewport{};
 
-        // states
-        bool       is_dragging{};
+        // Options
+        bool is_excluded_from_capture{true};
+
+        // States
+        bool is_dragging{};
         point_type relative_position{};
         timed_type zooming_beginning{std::chrono::steady_clock::now()};
         timed_type zooming_previous{zooming_beginning};
