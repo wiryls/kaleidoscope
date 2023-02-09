@@ -2,47 +2,42 @@
 
 # Kaleidoscope
 
-A **kaleidoscope** style screen filter!
+A **kaleidoscope** style screen filter on Windows 10!
 
-## Introduction
+This program uses an equilateral triangle box to pick patterns, and fill the entire windows desktop with the generated graphics.
 
-This program uses an equilateral triangle box to pick patterns, and fill the entire windows desktop with the generated graphics. By moving the selection box around, we can get event more strange images like the picture below:
+## Usage
 
-![preview-code](https://user-images.githubusercontent.com/7984500/217586805-81230b0d-ff5b-4b64-9bf9-ec3629b37c4d.png)
-
-### Requirements
-
-- Operating system: Windows (version >= 10) with DirectX 12
-
-### Usage
-
-Open the `kaleidoscope.exe`, program will automatically fill the screen with a small triangle pattern in the middle of your desktop. Then:
+Open the `kaleidoscope.exe`, program will automatically fill the screen with a small triangle pattern in the middle of your desktop. Then we can:
 
 - Drag with the mouse to move the selection box.
 - Rotate your mouse wheel to resize the selection box.
 - Press ESC or use the right-click menu to exit.
 
-https://user-images.githubusercontent.com/7984500/217632201-b8e297cf-3540-4726-b808-772ee35adf3d.mp4
-
 Notes:
 
 - If you want to take a screenshot, please **DISABLE** `Exclude from capture` in the right-click menu.
-- By enabling `Exclude from capture`, graphics will be smoother. But it will NOT be captured by other screenshot program any more.
+- By enabling `Exclude from capture`, graphics will be smoother. But it will NOT be captured by other screenshot programs.
+
+Moving the selection box around, we can get even more:
+
+https://user-images.githubusercontent.com/7984500/217632201-b8e297cf-3540-4726-b808-772ee35adf3d.mp4
 
 ## Build
 
-Requirements:
+### Requirements
 
+- Windows (version >= 10) with DirectX 12
 - Visual Studio (version >= 2022) with the C++ desktop development tools.
 
-Compile:
+### Compile
 
 1. Clone this project.
 2. Open the root folder with Visual Studio, or just configure it with CMake.
-3. Wait until CMake configuration finished (during this step, a third-party library will be cloned).
-4. Compile it with Visual Studio or CMake (still use msbuild).
-5. The compiled program may be output to `out\build\x64-Release\app\kaleidoscope` or `build\app\kaleidoscope\MinSizeRel`. (depends on your CMake configuration)
+3. Wait until CMake configuration finished. (During this step, a third-party library will be cloned)
+4. Compile it with Visual Studio or CMake.
+5. The compiled program may be output to `out\build\x64-Release\app\kaleidoscope` or `build\app\kaleidoscope\MinSizeRel`. (It depends on your CMake configuration)
 
 ## Miscellaneous
 
-It may be more appropriate to use DirectX 11, as [Desktop Duplication API](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/desktop-dup-api) doesn't support DirectX 12 (current implementation has one unnecessary copy operation).
+It may be more appropriate to use DirectX 11, as [Desktop Duplication API](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/desktop-dup-api) doesn't support DirectX 12 (current implementation has one unnecessary copy).

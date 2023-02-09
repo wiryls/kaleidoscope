@@ -19,7 +19,7 @@ namespace ext
     auto static inline calculate_extended_bounding_rect(viewmodel::state<LONG> const & state) -> RECT
     {
         auto constexpr static border = LONG{64};
-        auto & v = state.viewport_vertices();
+        auto & v = state.triangle_vertices();
         return RECT
         {
             std::max(v[2][0], border) - border, // left
@@ -60,6 +60,18 @@ namespace ext
         info.fState = checked ? MFS_CHECKED : MFS_UNCHECKED;
         SetMenuItemInfo(menu, item, false, &info);
     }
+
+    auto static inline set_exclude_from_capture(HWND hwnd, bool on) -> BOOL
+    {
+        // Exclude current window from screen capture (require version >= Windows 10 Version 2004)
+        return SetWindowDisplayAffinity(hwnd, on ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
+    }
+
+    auto static inline set_top_most(HWND hwnd, bool on) -> LONG_PTR
+    {
+        auto option = on ? HWND_TOPMOST : HWND_NOTOPMOST;
+        return SetWindowPos(hwnd, option, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+    }
 }
 
 namespace app
@@ -83,6 +95,8 @@ namespace app
     auto static constexpr menu_item_exit_text = TEXT("Exit");
     auto static constexpr menu_item_no_capture = UINT_PTR{1001};
     auto static constexpr menu_item_no_capture_text = TEXT("Exclude from capture");
+    auto static constexpr menu_item_top_most = UINT_PTR{1002};
+    auto static constexpr menu_item_top_most_text = TEXT("Keep top most");
 
     auto static inline handle_liftime(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) -> extended_data *
     {
@@ -108,7 +122,7 @@ namespace app
             auto height = static_cast<UINT>(rect.bottom - rect.top);
 
             // Update members
-            udata->state.update_monitor_size(width, height);
+            udata->state.on_monitor_size_changed(width, height);
             udata->render = std::make_unique<mirror>(hwnd, width, height);
             udata->render->on_update(ext::to_aligned_regular_triangle(udata->state));
             udata->menu = CreatePopupMenu() >> must::non_null;
@@ -122,11 +136,6 @@ namespace app
             // Resize current window to fullscreen
             SetWindowPos(hwnd, 0, left, top, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED) >> must::done;
 
-            // Check capture mode
-            auto option_checked = udata->state.option_is_excluded_from_capture();
-            auto next_mode = option_checked ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE;
-            SetWindowDisplayAffinity(hwnd, next_mode) >> must::done;
-
             // Setup menu
             //
             // Refer to
@@ -135,10 +144,20 @@ namespace app
             // https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-insertmenua
             // https://stackoverflow.com/a/68845977
             auto menu = udata->menu;
+            AppendMenu(menu, MF_STRING, menu_item_top_most, menu_item_top_most_text);
             AppendMenu(menu, MF_STRING, menu_item_no_capture, menu_item_no_capture_text);
             AppendMenu(menu, MF_SEPARATOR, 0, nullptr);
             AppendMenu(menu, MF_STRING, menu_item_exit, menu_item_exit_text);
-            ext::switch_menu_item(menu, menu_item_no_capture, option_checked);
+            {
+                auto option = udata->state.option_keep_top_most();
+                ext::set_top_most(hwnd, option) >> must::done;
+                ext::switch_menu_item(menu, menu_item_top_most, option);
+            }
+            {
+                auto option = udata->state.option_exclude_from_capture();
+                ext::set_exclude_from_capture(hwnd, option) >> must::done;
+                ext::switch_menu_item(menu, menu_item_no_capture, option);
+            }
 
             // Setup a timer to render
             //
@@ -188,7 +207,7 @@ namespace app
         case WM_PAINT: // Paint
         {
             // Prepare a triangle
-            auto & vertices = state.viewport_vertices();
+            auto & vertices = state.triangle_vertices();
             auto points = std::array<POINT, 3>{};
             static_assert(sizeof vertices == sizeof points);
             std::memcpy(points.data(), vertices.data(), sizeof(vertices));
@@ -215,7 +234,7 @@ namespace app
             if (width != 0 && height != 0)
             {
                 // Update
-                state.update_monitor_size(width, height);
+                state.on_monitor_size_changed(width, height);
                 render.on_update(ext::to_aligned_regular_triangle(state));
                 render.on_resize(width, height);
                 // Repaint
@@ -328,13 +347,18 @@ namespace app
         auto & state = data.state;
         switch (wparam)
         {
+        case menu_item_top_most:
+        {
+            auto option = state.option_keep_top_most(true);
+            ext::set_top_most(hwnd, option) >> must::done;
+            ext::switch_menu_item(data.menu, menu_item_top_most, option);
+            return 0;
+        }
         case menu_item_no_capture:
         {
-            // Exclude current window from screen capture (require version >= Windows 10 Version 2004)
-            auto check = state.option_is_excluded_from_capture(true);
-            auto next = check ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE;
-            SetWindowDisplayAffinity(hwnd, next) >> must::done;
-            ext::switch_menu_item(data.menu, menu_item_no_capture, check);
+            auto option = state.option_exclude_from_capture(true);
+            ext::set_exclude_from_capture(hwnd, option) >> must::done;
+            ext::switch_menu_item(data.menu, menu_item_no_capture, option);
             return 0;
         }
         case menu_item_exit:
@@ -349,7 +373,7 @@ namespace app
         }
     }
 
-    auto static window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) -> LRESULT
+    auto static CALLBACK window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) -> LRESULT
     {
         auto user_data = handle_liftime(hwnd, umsg, wparam, lparam);
         if (user_data == nullptr)
@@ -371,7 +395,7 @@ namespace app
     }
 }
 
-auto run(HINSTANCE instance, int show) -> void
+auto CALLBACK run(HINSTANCE instance, int show) -> void
 {
     // Prepare some declarations
     using namespace aux;
@@ -398,9 +422,7 @@ auto run(HINSTANCE instance, int show) -> void
     // Note: finally i give up using WS_EX_NOREDIRECTIONBITMAP in order to allow
     // partial click-through-able.
     auto style = WS_POPUP & ~(WS_CAPTION | WS_THICKFRAME);
-    auto extended_style
-        = (WS_EX_LAYERED | WS_EX_TOPMOST) &
-        ~ (WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
+    auto extended_style = WS_EX_LAYERED & ~ (WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
     auto window = CreateWindowEx(
         extended_style,
         clazz.lpszClassName,
@@ -429,7 +451,7 @@ auto run(HINSTANCE instance, int show) -> void
     UnregisterClass(clazz.lpszClassName, clazz.hInstance);
 }
 
-auto wWinMain(
+auto CALLBACK wWinMain(
     _In_     HINSTANCE instance,
     _In_opt_ HINSTANCE /* prev_instance */,
     _In_     PWSTR /* cmd_line */,

@@ -3,11 +3,11 @@ Texture2D screenshot : register(t0);
 
 // Note: about "gourp"
 // https://stackoverflow.com/a/61378340
-cbuffer regular_triangle_group : register(b0)
+cbuffer triangle_group : register(b0)
 {
-    float2 top;
-    float length;
-    float height;
+    float2 const origin;
+    float  const length;
+    float  const height;
 };
 
 float cross2(float2 a, float2 b)
@@ -15,16 +15,7 @@ float cross2(float2 a, float2 b)
     return a.x * b.y - a.y * b.x;
 }
 
-bool is_inside(float2 source)
-{
-    float2 left = top + float2(-length * 0.5, height);
-    float2 right = top + float2(length * 0.5, height);
-    return cross2(top - left, source - left) >= 0
-        && cross2(right - top, source - top) >= 0
-        && cross2(left - right, source - right) >= 0;
-}
-
-float2 solve(float2 source, float2 anchor, float2 mirror, float2 project)
+float2 reflect(float2 source, float2 anchor, float2 mirror, float2 project)
 {
     // (? - source) x project = 0
     // (? + source - 2 * anchor) x mirror = 0
@@ -36,67 +27,73 @@ float2 solve(float2 source, float2 anchor, float2 mirror, float2 project)
     return (a * mirror - b * project) / k;
 }
 
-float2 redirect(float2 pos)
+float2 redirect(float2 o)
 {
     // Bounding box of the repeat pattern
-    float2 size = float2(length * 3.0, height * 2.0);
-    float2 center = float2(top.x + length, top.y);
-    float2 top_left = float2(top.x - length * 0.5, top.y - height);
+    float2 const size = float2(length * 3.0, height * 2.0);
+    float2 const center = float2(origin.x + length, origin.y);
+    float2 const top_left = float2(origin.x - length * 0.5, origin.y - height);
 
     // Calculate (x, y) in bounding box
-    pos = top_left + frac((pos - top_left) / size) * size;
+    o = top_left + frac((o - top_left) / size) * size;
 
     // Reduce range again
-    if (pos.x >= center.x && pos.y < center.y)
+    if (o.x >= center.x && o.y < center.y)
     {
-        pos.x -= size.x * 0.5;
-        pos.y += size.y * 0.5;
+        o.x -= size.x * 0.5;
+        o.y += size.y * 0.5;
     }
-    else if (pos.x >= center.x && pos.y >= center.y)
+    else if (o.x >= center.x && o.y >= center.y)
     {
-        pos.x -= size.x * 0.5;
-        pos.y -= size.y * 0.5;
-        pos.y = center.y * 2.0 - pos.y;
+        o.x -= size.x * 0.5;
+        o.y -= size.y * 0.5;
+        o.y = center.y * 2.0 - o.y;
     }
-    else if (pos.x < center.x && pos.y < center.y)
+    else if (o.x < center.x && o.y < center.y)
     {
-        pos.y = center.y * 2.0 - pos.y;
+        o.y = center.y * 2.0 - o.y;
     }
-    return pos;
+    return o;
 }
 
-float2 reflect(float2 pos)
+float4 main(float2 o : TEXCOORD) : SV_TARGET
 {
-    // Define points of boundary
-    float2 to_top_left = float2(-length * 0.5, -height);
-    float2 to_top_right = float2(length * 0.5, -height);
+    float const half_length = length * 0.5;
 
-    float2 left = top - to_top_right;
-    float2 right = top - to_top_left;
+    float2 const left_to_top = float2(half_length, -height);
+    float2 const right_to_top = float2(-half_length, -height);
 
-    // Repair
-    if (cross2(to_top_right, pos - right) > 0)
+    float2 const top = origin;
+    float2 const left = top - left_to_top;
+    float2 const right = top - right_to_top;
+
+    // Ignore if o is inside triangle
+    if (cross2(top - left, o - left) >= 0 &&
+        cross2(right - top, o - top) >= 0 &&
+        cross2(left - right, o - right) >= 0)
     {
-        pos.x -= length * 1.5;
-        pos.y = 2 * top.y + height - pos.y;
+        return float4(0, 0, 0, 0);
     }
 
-    // Reflect
-    if (cross2(to_top_right, pos - left) < 0)
-    {
-        pos = solve(pos, left, to_top_right, 0.5 * to_top_right - to_top_left);
-    }
-    else if (cross2(to_top_left, pos - right) > 0)
-    {
-        pos = solve(pos, right, to_top_left, 0.5 * to_top_left - to_top_right);
-    }
-    return pos;
-}
+    // [1] Minimum repeat pattern
+    o = redirect(o);
 
-float4 main(float2 tex : TEXCOORD) : SV_TARGET
-{
-    if (is_inside(tex))
-        return float4(0.0, 0.0, 0.0, 0.0);
-    else
-        return screenshot.Sample(screenshot_sampler, reflect(redirect(tex)));
+    // [2] Triangulation
+    if (cross2(left_to_top, o - right) > 0)
+    {
+        o.x -= length * 1.5;
+        o.y = 2 * top.y + height - o.y;
+    }
+
+    // [3] Reflect
+    if (cross2(left_to_top, o - left) < 0)
+    {
+        o = reflect(o, left, left_to_top, 0.5 * left_to_top - right_to_top);
+    }
+    else if (cross2(right_to_top, o - right) > 0)
+    {
+        o = reflect(o, right, right_to_top, 0.5 * right_to_top - left_to_top);
+    }
+
+    return screenshot.Sample(screenshot_sampler, o);
 }

@@ -79,7 +79,7 @@ namespace viewmodel
             viewport.zoom(static_cast<I>(delta) * factor);
         }
 
-        auto update_monitor_size(std::integral auto x, std::integral auto y) -> void
+        auto on_monitor_size_changed(std::integral auto x, std::integral auto y) -> void
         {
             if (viewport.resize(x, y))
             {
@@ -94,7 +94,7 @@ namespace viewmodel
         }
 
         // Order: top, right, left
-        auto viewport_vertices() const -> vertices const &
+        auto triangle_vertices() const -> vertices const &
         {
             return viewport.positions();
         }
@@ -109,7 +109,7 @@ namespace viewmodel
             return viewport.side();
         }
 
-        auto option_is_excluded_from_capture(bool toggle = false) -> bool
+        auto option_exclude_from_capture(bool toggle = false) -> bool
         {
             if (toggle)
             {
@@ -118,12 +118,22 @@ namespace viewmodel
             return is_excluded_from_capture;
         }
 
+        auto option_keep_top_most(bool toggle = false) -> bool
+        {
+            if (toggle)
+            {
+                is_keeping_top_most = !is_keeping_top_most;
+            }
+            return is_keeping_top_most;
+        }
+
     private:
         // Model
         model_type viewport{};
 
         // Options
         bool is_excluded_from_capture{true};
+        bool is_keeping_top_most{true};
 
         // States
         bool is_dragging{};
