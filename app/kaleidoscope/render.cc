@@ -10,7 +10,7 @@
 #include <d3d11.h>
 #include <dxgi1_6.h>
 #include <dcomp.h>
-#include <wrl.h>
+#include <wrl/client.h>
 
 #include "tool.h"
 #include "error.h"

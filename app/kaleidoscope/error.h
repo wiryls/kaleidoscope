@@ -1,5 +1,4 @@
 #pragma once
-#include <concepts>
 #include <system_error>
 
 #define NOMINMAX
@@ -10,9 +9,6 @@
 
 namespace must
 {
-    template<typename T>
-    concept char_type = std::same_as<typename std::char_traits<T>::char_type, T>;
-
     auto constexpr done = [](std::convertible_to<BOOL> auto && value)
     {
         if (static_cast<bool>(value))

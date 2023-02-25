@@ -41,3 +41,5 @@ https://user-images.githubusercontent.com/7984500/217632201-b8e297cf-3540-4726-b
 ## Miscellaneous
 
 It may be more appropriate to use DirectX 11, as [Desktop Duplication API](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/desktop-dup-api) doesn't support DirectX 12 (current implementation has one unnecessary copy).
+
+Current implementation may not support some situations such as unplugging the display, screen flipping, etc.

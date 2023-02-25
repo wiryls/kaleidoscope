@@ -476,7 +476,7 @@ auto CALLBACK wWinMain(
     {
         // Refer to
         // https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-messagebox
-        MessageBox(nullptr, message.c_str(), ":-(", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+        MessageBox(nullptr, message.c_str(), TEXT("Oops!"), MB_OK | MB_ICONWARNING | MB_TOPMOST);
     }
     return 0;
 }
