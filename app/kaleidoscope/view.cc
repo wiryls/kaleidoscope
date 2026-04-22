@@ -17,32 +17,6 @@
 namespace ext
 {
 
-auto static inline calculate_extended_bounding_rect(viewmodel::state<LONG> const & state) -> RECT
-{
-    auto constexpr static border = LONG{64};
-    auto & v                     = state.triangle_vertices();
-    return RECT{
-        std::max(v[2][0], border) - border, // left
-        std::max(v[0][1], border) - border, // top
-        v[1][0] + border,                   // right
-        v[1][1] + border,                   // bottom
-    };
-}
-
-auto static inline expand_triangle(std::array<POINT, 3> & input, bool is_moving) -> std::array<POINT, 3> &
-{
-    auto constexpr static border = LONG{16};
-    auto extra                   = (is_moving ? 3 : 1) * border;
-
-    input[0].y -= extra;
-    input[1].x += extra;
-    input[1].y += extra;
-    input[2].x -= extra;
-    input[2].y += extra;
-
-    return input;
-}
-
 auto static inline to_aligned_regular_triangle(viewmodel::state<LONG> const & state) -> mirror::aligned_regular_triangle
 {
     auto top   = state.triangle_top();
@@ -72,6 +46,30 @@ auto static inline set_top_most(HWND hwnd, bool on) -> LONG_PTR
     auto option = on ? HWND_TOPMOST : HWND_NOTOPMOST;
     return SetWindowPos(hwnd, option, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
 }
+
+auto static inline update_window_region(HWND hwnd, model::triangle_vertices<LONG> const & vertices) -> void
+{
+    auto rect = RECT{};
+    GetClientRect(hwnd, &rect);
+    auto full = CreateRectRgnIndirect(&rect);
+
+    auto points = std::array<POINT, 3>{};
+    for (auto i = 0; i < 3; ++i)
+    {
+        points[i].x = vertices[i][0];
+        points[i].y = vertices[i][1];
+    }
+    auto tri = CreatePolygonRgn(points.data(), 3, ALTERNATE);
+
+    auto result = CreateRectRgn(0, 0, 0, 0);
+    CombineRgn(result, full, tri, RGN_DIFF);
+
+    SetWindowRgn(hwnd, result, FALSE);
+
+    DeleteObject(full);
+    DeleteObject(tri);
+}
+
 } // namespace ext
 
 namespace app
@@ -128,11 +126,11 @@ auto static inline handle_lifetime(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM l
         // Save udata as user data of current window
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(udata));
 
-        // Mark white (255, 255, 255) as transparent color (our background is black)
-        SetLayeredWindowAttributes(hwnd, RGB(255, 255, 255), 0, LWA_COLORKEY) >> must::done;
-
         // Resize current window to fullscreen
         SetWindowPos(hwnd, 0, left, top, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED) >> must::done;
+
+        // Set initial window region (excludes triangle for click-through)
+        ext::update_window_region(hwnd, udata->state.triangle_vertices());
 
         // Setup menu
         //
@@ -187,42 +185,19 @@ auto static inline handle_common_events(HWND hwnd, UINT umsg, WPARAM wparam, LPA
 
     switch (umsg)
     {
-    case WM_PAINT: // Paint
-    {
-        // Prepare a triangle
-        auto & vertices = state.triangle_vertices();
-        auto   points   = std::array<POINT, 3>{};
-        static_assert(sizeof vertices == sizeof points);
-        std::memcpy(points.data(), vertices.data(), sizeof(vertices));
-
-        // As WDA_EXCLUDEFROMCAPTURE forbids other programs capturing
-        // this window, I choose to extend the transparents area.
-        ext::expand_triangle(points, state.is_moving());
-
-        // Repaint
-        render.on_render();
-
-        // Prepare to repaint transparent area with gdi
-        auto ps  = PAINTSTRUCT{};
-        auto hdc = BeginPaint(hwnd, &ps);
-        SetDCBrushColor(hdc, RGB(255, 255, 255));
-        Polygon(hdc, points.data(), static_cast<int>(points.size()));
-        EndPaint(hwnd, &ps);
-
+    case WM_PAINT:
+        ValidateRect(hwnd, nullptr);
         return 0;
-    }
     case WM_SIZE:
     {
         auto width  = LOWORD(lparam);
         auto height = HIWORD(lparam);
         if (width != 0 && height != 0)
         {
-            // Update
             state.on_monitor_size_changed(width, height);
             render.on_update(ext::to_aligned_regular_triangle(state));
             render.on_resize(width, height);
-            // Repaint
-            InvalidateRect(hwnd, nullptr, true);
+            ext::update_window_region(hwnd, state.triangle_vertices());
         }
         return 0;
     }
@@ -244,7 +219,6 @@ auto static inline handle_inputs(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
     {
     case WM_MOUSEWHEEL:
     {
-        auto rect  = ext::calculate_extended_bounding_rect(state);
         auto delta = GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
         state.on_length_changed(delta);
         render.on_update(ext::to_aligned_regular_triangle(state));
@@ -254,7 +228,7 @@ auto static inline handle_inputs(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
         // -
         // https://github.com/MicrosoftDocs/win32/blob/e82557891475f35c505f90f2aa0f76bebb4e190c/desktop-src/inputdev/about-mouse-input.md
 
-        InvalidateRect(hwnd, &rect, true /* Send WM_ERASEBKGND */);
+        ext::update_window_region(hwnd, state.triangle_vertices());
         return 0;
     }
     case WM_LBUTTONDOWN:
@@ -272,14 +246,11 @@ auto static inline handle_inputs(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
     {
         if (state.is_moving())
         {
-            auto rect = ext::calculate_extended_bounding_rect(state);
-
             auto x = GET_X_LPARAM(lparam);
             auto y = GET_Y_LPARAM(lparam);
             state.on_moving(x, y);
             render.on_update(ext::to_aligned_regular_triangle(state));
-
-            InvalidateRect(hwnd, &rect, true) >> must::done;
+            ext::update_window_region(hwnd, state.triangle_vertices());
         }
         return 0;
     }
@@ -289,9 +260,7 @@ auto static inline handle_inputs(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpa
         {
             state.on_stop_moving();
             ReleaseCapture();
-
-            auto rect = ext::calculate_extended_bounding_rect(state);
-            InvalidateRect(hwnd, &rect, true) >> must::done;
+            ext::update_window_region(hwnd, state.triangle_vertices());
         }
         return 0;
     }
@@ -402,22 +371,23 @@ auto CALLBACK run(HINSTANCE instance, int show) -> void
     // Refer to
     // https://learn.microsoft.com/en-us/windows/win32/learnwin32/learn-to-program-for-windows
     auto clazz          = WNDCLASS{};
-    clazz.style         = CS_HREDRAW | CS_VREDRAW; // Repaint if window got moved or size changed (optional)
+    clazz.style         = CS_HREDRAW | CS_VREDRAW;
     clazz.lpfnWndProc   = app::window_message_handler;
     clazz.hInstance     = instance;
     clazz.hIcon         = LoadIcon(instance, MAKEINTRESOURCE(IDI_ICON1));
     clazz.hCursor       = LoadCursor(nullptr, IDC_ARROW);
-    clazz.hbrBackground = static_cast<HBRUSH>(::GetStockObject(BLACK_BRUSH)); // Handle WM_ERASEBKGND with black
     clazz.lpszClassName = app::class_name;
     RegisterClass(&clazz);
 
     // Create a fullscreen window
     //
-    // Note: finally i give up using WS_EX_NOREDIRECTIONBITMAP in order to allow
-    // partial click-through-able.
+    // WS_EX_NOREDIRECTIONBITMAP eliminates the GDI redirection surface, so there is
+    // no separate GDI surface that can desync with the DX12 frame (which was causing
+    // black flickering inside the triangle during dragging). Click-through inside the
+    // triangle is handled by SetWindowRgn (subtracting the triangle from the window
+    // region) instead of the previous LWA_COLORKEY + GDI white polygon approach.
     auto style = WS_POPUP & ~(WS_CAPTION | WS_THICKFRAME);
-    auto extended_style =
-        WS_EX_LAYERED & ~(WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
+    auto extended_style = WS_EX_NOREDIRECTIONBITMAP & ~(WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
     auto window = CreateWindowEx(
                       extended_style, clazz.lpszClassName, app::title, style, CW_USEDEFAULT, CW_USEDEFAULT,
                       CW_USEDEFAULT, CW_USEDEFAULT,
@@ -439,20 +409,19 @@ auto CALLBACK run(HINSTANCE instance, int show) -> void
     // frame rate is controlled by swap chain VSync (Present interval = 1).
     for (auto message = MSG{}; ;)
     {
-        if (PeekMessage(&message, nullptr, 0, 0, PM_REMOVE))
+        while (PeekMessage(&message, nullptr, 0, 0, PM_REMOVE))
         {
             if (message.message == WM_QUIT)
-                break;
+                goto done;
             TranslateMessage(&message);
             DispatchMessage(&message);
         }
-        else
-        {
-            auto data = reinterpret_cast<app::extended_data *>(GetWindowLongPtr(window, GWLP_USERDATA));
-            if (data && data->render)
-                data->render->on_render();
-        }
+
+        auto data = reinterpret_cast<app::extended_data *>(GetWindowLongPtr(window, GWLP_USERDATA));
+        if (data && data->render)
+            data->render->on_render();
     }
+done:
 
     // Cleaning
     UnregisterClass(clazz.lpszClassName, clazz.hInstance);

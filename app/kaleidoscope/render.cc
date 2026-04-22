@@ -1,6 +1,5 @@
 #include <array>
 #include <concepts>
-#include <stdexcept>
 #include <system_error>
 
 #define NOMINMAX
