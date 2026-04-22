@@ -138,19 +138,20 @@ auto static render_target_views(
 auto static shared_texture2d(
     ComPtr<ID3D11Device> const & device11, ComPtr<ID3D12Device> const & device12,
     ComPtr<ID3D12DescriptorHeap> const & heap, UINT heap_handle_offset, ComPtr<ID3D11Texture2D> & texture,
-    ComPtr<ID3D12Resource> & resource, HANDLE & shared_handle, UINT width, UINT height
+    ComPtr<ID3D12Resource> & resource, HANDLE & shared_handle, UINT width, UINT height, DXGI_FORMAT format
 ) -> HRESULT
 {
     // Create a texture for screenshot
     //
-    // Format must be DXGI_FORMAT_B8G8R8A8_UNORM
+    // SDR: DXGI_FORMAT_B8G8R8A8_UNORM
+    // HDR: DXGI_FORMAT_R16G16B16A16_FLOAT
     // MiscFlags must be D3D11_RESOURCE_MISC_SHARED_NTHANDLE
     auto desc       = D3D11_TEXTURE2D_DESC{};
     desc.Width      = width;
     desc.Height     = height;
     desc.MipLevels  = 1;
     desc.ArraySize  = 1;
-    desc.Format     = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.Format     = format;
     desc.SampleDesc = {1, 0};
     desc.Usage      = D3D11_USAGE_DEFAULT;
     desc.BindFlags  = D3D11_BIND_SHADER_RESOURCE;
@@ -193,6 +194,35 @@ auto static shared_texture2d(
     }
 
     return hr;
+}
+
+auto static is_hdr_output(ComPtr<IDXGIOutput1> const & output) -> bool
+{
+    auto output6 = ComPtr<IDXGIOutput6>();
+    if (FAILED(output.As(&output6)))
+        return false;
+
+    auto desc = DXGI_OUTPUT_DESC1{};
+    output6->GetDesc1(&desc);
+    return desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+}
+
+auto static create_output_duplication(
+    ComPtr<IDXGIOutput1> const & output, ComPtr<ID3D11Device> const & device11, bool is_hdr,
+    ComPtr<IDXGIOutputDuplication> & duplication
+) -> HRESULT
+{
+    if (is_hdr)
+    {
+        auto output6 = ComPtr<IDXGIOutput6>();
+        auto hr = output.As(&output6);
+        if (FAILED(hr))
+            return hr;
+
+        auto format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        return output6->DuplicateOutput1(device11.Get(), 0, 1, &format, &duplication);
+    }
+    return output->DuplicateOutput(device11.Get(), &duplication);
 }
 } // namespace make
 
@@ -241,6 +271,16 @@ struct mirror::core
             make::recommended_adapter(factory, adapter) >> must::succeed;
         }
 
+        // Detect HDR early to choose swap chain format
+        {
+            auto test = ComPtr<IDXGIOutput1>();
+            make::inferred_output(window, adapter, test) >> must::succeed;
+
+            is_hdr            = make::is_hdr_output(test);
+            swap_chain_format = is_hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
+            screenshot_format = is_hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM;
+        }
+
         // Create device, command queue and command allocator
         {
             // Device
@@ -274,7 +314,7 @@ struct mirror::core
             auto desc             = DXGI_SWAP_CHAIN_DESC1{};
             desc.Width            = width;
             desc.Height           = height;
-            desc.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
+            desc.Format           = swap_chain_format;
             desc.SampleDesc.Count = 1;
             desc.BufferUsage      = DXGI_USAGE_RENDER_TARGET_OUTPUT;
             desc.BufferCount      = static_cast<UINT>(render_targets.size());
@@ -288,6 +328,10 @@ struct mirror::core
             auto base = ComPtr<IDXGISwapChain1>();
             factory->CreateSwapChainForComposition(command_queue.Get(), &desc, nullptr, &base) >> must::succeed;
             base.As(&swap_chain) >> must::succeed;
+
+            // Set color space for HDR (scRGB linear)
+            if (is_hdr)
+                swap_chain->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709) >> must::succeed;
         }
 
         // Create swap chain related objects:
@@ -329,8 +373,8 @@ struct mirror::core
             // Create an IDXGIOutput1
             make::inferred_output(window, adapter, output) >> must::succeed;
 
-            // Create an IDXGIDuplicateOutput
-            output->DuplicateOutput(device11.Get(), &output_duplication) >> must::succeed;
+            // Create an IDXGIOutputDuplication
+            make::create_output_duplication(output, device11, is_hdr, output_duplication) >> must::succeed;
         }
 
         /////////////////////////////////////////////////////////////////////
@@ -476,7 +520,7 @@ struct mirror::core
             desc.InputLayout                     = input_layout_desc;
             desc.PrimitiveTopologyType           = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
             desc.NumRenderTargets                = 1;
-            desc.RTVFormats[0]                   = DXGI_FORMAT_R8G8B8A8_UNORM;
+            desc.RTVFormats[0]                   = swap_chain_format;
             desc.SampleDesc.Count                = 1;
 
             device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipeline_state)) >> must::succeed;
@@ -651,7 +695,7 @@ struct mirror::core
         {
             make::shared_texture2d(
                 device11, device, descriptor_heap, descriptor_heap_offsets[1], shared_texture, screenshot_texture,
-                shared_texture_handle, width, height
+                shared_texture_handle, width, height, screenshot_format
             ) >> must::succeed;
         }
 
@@ -714,7 +758,7 @@ struct mirror::core
             // Refer to
             // https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nn-dxgi1_2-idxgioutputduplication
             // https://stackoverflow.com/a/31238973
-            output->DuplicateOutput(device11.Get(), &output_duplication) >> must::succeed;
+            make::create_output_duplication(output, device11, is_hdr, output_duplication) >> must::succeed;
             break;
 
         case DXGI_ERROR_INVALID_CALL:
@@ -733,7 +777,7 @@ struct mirror::core
         if (hr = output_duplication->AcquireNextFrame(0, &frame_info, &frame_resource); hr == DXGI_ERROR_ACCESS_LOST)
         {
             // Retry AcquireNextFrame once
-            output->DuplicateOutput(device11.Get(), &output_duplication) >> must::succeed;
+            make::create_output_duplication(output, device11, is_hdr, output_duplication) >> must::succeed;
             hr = output_duplication->AcquireNextFrame(0, &frame_info, &frame_resource);
         }
 
@@ -758,11 +802,11 @@ struct mirror::core
         screenshot->GetDesc(&source);
         auto target = D3D11_TEXTURE2D_DESC{};
         shared_texture->GetDesc(&target);
-        if (source.Width != target.Width || source.Height != target.Height)
+        if (source.Width != target.Width || source.Height != target.Height || source.Format != target.Format)
         {
             make::shared_texture2d(
                 device11, device, descriptor_heap, descriptor_heap_offsets[1], shared_texture, screenshot_texture,
-                shared_texture_handle, source.Width, source.Height
+                shared_texture_handle, source.Width, source.Height, source.Format
             ) >> must::succeed;
         }
 
@@ -794,7 +838,7 @@ struct mirror::core
 
         // 3. Resize swapchain buffer
         swap_chain->ResizeBuffers(
-            static_cast<UINT>(render_targets.size()), width, height, DXGI_FORMAT_R8G8B8A8_UNORM, 0
+            static_cast<UINT>(render_targets.size()), width, height, swap_chain_format, 0
         ) >> must::succeed;
 
         // 4. Resize viewport and rect
@@ -809,7 +853,7 @@ struct mirror::core
         // 6. Create a new shared screenshot texture
         make::shared_texture2d(
             device11, device, descriptor_heap, descriptor_heap_offsets[1], shared_texture, screenshot_texture,
-            shared_texture_handle, width, height
+            shared_texture_handle, width, height, screenshot_format
         ) >> must::succeed;
     }
 
@@ -944,6 +988,11 @@ struct mirror::core
     HWND window_instance;
     UINT window_width;
     UINT window_height;
+
+    // HDR state
+    bool        is_hdr{};
+    DXGI_FORMAT swap_chain_format{};
+    DXGI_FORMAT screenshot_format{};
 
     // Device and Command Queue
     wrl::ComPtr<ID3D12Device>                                    device{};
