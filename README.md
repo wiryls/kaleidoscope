@@ -2,6 +2,8 @@
 
 # Kaleidoscope
 
+[English](README.md) | [中文](README.zh-CN.md)
+
 A **kaleidoscope** style screen filter for Windows 10/11.
 
 The program captures the desktop using an equilateral triangle selection box and fills the entire screen with kaleidoscope-style reflected graphics.
