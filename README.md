@@ -2,7 +2,7 @@
 
 # Kaleidoscope
 
-A **kaleidoscope** style screen filter on Windows 10!
+A **kaleidoscope** style screen filter on Windows 10/11!
 
 This program uses an equilateral triangle box to pick patterns, and fill the entire windows desktop with the generated graphics.
 
@@ -21,7 +21,7 @@ Notes:
 
 Moving the selection box around, we can get even more:
 
-https://user-images.githubusercontent.com/7984500/217632201-b8e297cf-3540-4726-b808-772ee35adf3d.mp4
+<https://user-images.githubusercontent.com/7984500/217632201-b8e297cf-3540-4726-b808-772ee35adf3d.mp4>
 
 ## Build
 
@@ -33,7 +33,7 @@ https://user-images.githubusercontent.com/7984500/217632201-b8e297cf-3540-4726-b
 ### Compile
 
 1. Clone this project.
-2. Open the root folder with Visual Studio 2022.
+2. Open the root folder with Visual Studio 2026.
 3. Wait until CMake configuration finished. (During this step, a third-party library will be cloned)
 4. Add `x64-Release` to CMakeSettings and select it (Optional).
 5. Compile it with Visual Studio.

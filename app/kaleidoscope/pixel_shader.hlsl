@@ -1,7 +1,7 @@
 SamplerState screenshot_sampler : register(s0);
 Texture2D screenshot : register(t0);
 
-// Note: about "gourp"
+// Note: about "group"
 // https://stackoverflow.com/a/61378340
 cbuffer triangle_group : register(b0)
 {
@@ -24,7 +24,14 @@ float2 reflect(float2 source, float2 anchor, float2 mirror, float2 project)
     float a = cross2(source, project);
     float b = cross2(2.0 * anchor - source, mirror);
     float k = cross2(mirror, project);
-    return (a * mirror - b * project) / k;
+
+    // Branchless equivalent of:
+    //   if (abs(k) < 1e-6) return source;
+    //   return (a * mirror - b * project) / k;
+    float w = step(1e-6, abs(k));
+    float safe_k = k * w + (1.0 - w);
+
+    return lerp(source, (a * mirror - b * project) / safe_k, w);
 }
 
 float2 redirect(float2 o)

@@ -60,7 +60,7 @@ auto static recommended_adapter(ComPtr<IDXGIFactory4> const & factory, ComPtr<ID
     }
 }
 
-auto static inferenced_output(HWND window, ComPtr<IDXGIAdapter1> const & adapter, ComPtr<IDXGIOutput1> & output)
+auto static inferred_output(HWND window, ComPtr<IDXGIAdapter1> const & adapter, ComPtr<IDXGIOutput1> & output)
     -> HRESULT
 {
     auto target = ::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
@@ -200,7 +200,8 @@ auto static shared_texture2d(
 // Details
 struct mirror::core
 {
-public:
+    static constexpr auto frame_count = UINT{2};
+
     core(HWND window, UINT width, UINT height)
         : window_instance(window)
         , window_width(width)
@@ -254,9 +255,12 @@ public:
             desc.Type  = D3D12_COMMAND_LIST_TYPE_DIRECT;
             device->CreateCommandQueue(&desc, IID_PPV_ARGS(&command_queue)) >> must::succeed;
 
-            // Command allocator
-            device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&command_allocator)) >>
-                must::succeed;
+            // Command allocators (one per back buffer for CPU/GPU overlap)
+            for (auto & allocator : command_allocators)
+            {
+                device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator)) >>
+                    must::succeed;
+            }
         }
 
         /////////////////////////////////////////////////////////////////////
@@ -324,7 +328,7 @@ public:
             ) >> must::succeed;
 
             // Create an IDXGIOutput1
-            make::inferenced_output(window, adapter, output) >> must::succeed;
+            make::inferred_output(window, adapter, output) >> must::succeed;
 
             // Create an IDXGIDuplicateOutput
             output->DuplicateOutput(device11.Get(), &output_duplication) >> must::succeed;
@@ -365,7 +369,7 @@ public:
                 // constant buffer
                 ranges[0].RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_CBV; // Constant buffer view
                 ranges[0].NumDescriptors                    = 1; // There will be one descriptor
-                ranges[0].BaseShaderRegister                = 0; // Map to "register(t0)"
+                ranges[0].BaseShaderRegister                = 0; // Map to "register(b0)"
                 ranges[0].RegisterSpace                     = 0; // Map to "register(_, space0)"
                 ranges[0].Flags                             = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
                 ranges[0].OffsetInDescriptorsFromTableStart = 0;
@@ -482,7 +486,7 @@ public:
         // Create a command list
         {
             device->CreateCommandList(
-                0, D3D12_COMMAND_LIST_TYPE_DIRECT, command_allocator.Get(), pipeline_state.Get(),
+                0, D3D12_COMMAND_LIST_TYPE_DIRECT, command_allocators[back_buffer_index].Get(), pipeline_state.Get(),
                 IID_PPV_ARGS(&command_list)
             ) >> must::succeed;
             command_list->Close() >> must::succeed;
@@ -658,35 +662,35 @@ public:
         // Create Synchronization objects
         {
             fence_event = CreateEvent(nullptr, false, false, nullptr) >> must::non_null;
-            fence_value = 1;
+            for (auto & value : fence_values)
+                value = 1;
             device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)) >> must::succeed;
         }
     }
 
     ~core()
     {
-        wait_for_previous_frame();
+        for (auto index = UINT{}; index < frame_count; ++index)
+            wait_for_gpu(index);
         if (shared_texture_handle != nullptr)
             CloseHandle(shared_texture_handle);
         if (fence_event != nullptr)
             CloseHandle(fence_event);
     }
 
-    auto wait_for_previous_frame() -> void
+    auto wait_for_gpu(UINT index) -> void
     {
         using namespace aux;
 
-        auto value = fence_value;
-        command_queue->Signal(fence.Get(), value) >> must::succeed;
+        command_queue->Signal(fence.Get(), fence_values[index]) >> must::succeed;
 
-        if (++fence_value; fence->GetCompletedValue() < value)
+        if (fence->GetCompletedValue() < fence_values[index])
         {
-            fence->SetEventOnCompletion(value, fence_event) >> must::succeed;
+            fence->SetEventOnCompletion(fence_values[index], fence_event) >> must::succeed;
             WaitForSingleObjectEx(fence_event, INFINITE, false);
         }
 
-        // Refer to:
-        // https://github.com/microsoft/DirectX-Graphics-Samples/blob/0aa79bad78992da0b6a8279ddb9002c1753cb849/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.cpp#L320-L340
+        ++fence_values[index];
     }
 
     auto update_screenshot() -> void
@@ -776,7 +780,8 @@ public:
         window_height = height;
 
         // 1. Wait for command_queue finished
-        wait_for_previous_frame();
+        for (auto index = UINT{}; index < frame_count; ++index)
+            wait_for_gpu(index);
 
         // 2. Release old references
         //
@@ -831,16 +836,15 @@ public:
         using namespace aux;
         using wrl::ComPtr;
 
-        // Wait until done
-        wait_for_previous_frame();
-        back_buffer_index = swap_chain->GetCurrentBackBufferIndex();
+        // Only wait if GPU is still using this frame's command allocator
+        wait_for_gpu(back_buffer_index);
 
         // Grab a screenshot from OutputDuplication
         update_screenshot();
 
         // Reset command list
-        command_allocator->Reset() >> must::succeed;
-        command_list->Reset(command_allocator.Get(), pipeline_state.Get()) >> must::succeed;
+        command_allocators[back_buffer_index]->Reset() >> must::succeed;
+        command_list->Reset(command_allocators[back_buffer_index].Get(), pipeline_state.Get()) >> must::succeed;
 
         // Setup command list
         command_list->SetGraphicsRootSignature(root_signature.Get());
@@ -903,9 +907,11 @@ public:
 
         // Present back buffer
         swap_chain->Present(1, 0) >> must::succeed;
+
+        // Advance to next frame
+        back_buffer_index = swap_chain->GetCurrentBackBufferIndex();
     }
 
-public:
     // Define constant buffer layout
     struct triangle_constant_buffer
     {
@@ -936,16 +942,15 @@ public:
         0, 2, 3, // top left -> bottom right -> bottom left
     };
 
-public:
     HWND window_instance;
     UINT window_width;
     UINT window_height;
 
     // Device and Command Queue
-    wrl::ComPtr<ID3D12Device>           device{};
-    wrl::ComPtr<ID3D12DebugDevice>      debug_device{};
-    wrl::ComPtr<ID3D12CommandQueue>     command_queue{};
-    wrl::ComPtr<ID3D12CommandAllocator> command_allocator{};
+    wrl::ComPtr<ID3D12Device>                                    device{};
+    wrl::ComPtr<ID3D12DebugDevice>                               debug_device{};
+    wrl::ComPtr<ID3D12CommandQueue>                              command_queue{};
+    std::array<wrl::ComPtr<ID3D12CommandAllocator>, frame_count> command_allocators{};
 
     // Swap chain
     D3D12_VIEWPORT                             viewport{};
@@ -994,9 +999,9 @@ public:
     HANDLE                       shared_texture_handle{};
 
     // Synchronization objects
-    HANDLE                   fence_event{};
-    UINT64                   fence_value{};
-    wrl::ComPtr<ID3D12Fence> fence{};
+    HANDLE                           fence_event{};
+    std::array<UINT64, frame_count>  fence_values{};
+    wrl::ComPtr<ID3D12Fence>         fence{};
 };
 
 // Thanks to:

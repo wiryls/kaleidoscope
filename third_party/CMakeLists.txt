@@ -3,13 +3,13 @@
 cmake_minimum_required(VERSION 3.25)
 include(FetchContent)
 
-# backward
-FetchContent_Declare(
-    backward
-    GIT_REPOSITORY https://github.com/bombela/backward-cpp
-    GIT_TAG        v1.6
-    GIT_SHALLOW    true
-    SYSTEM)
+# backward - out of date now
+# FetchContent_Declare(
+#    backward
+#    GIT_REPOSITORY https://github.com/bombela/backward-cpp
+#    GIT_TAG        v1.6
+#    GIT_SHALLOW    true
+#    SYSTEM)
 
 # populate
-FetchContent_MakeAvailable(backward)
+# FetchContent_MakeAvailable(backward)

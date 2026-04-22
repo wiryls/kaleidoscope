@@ -23,7 +23,7 @@ public:
 
     auto resize(std::integral auto width, std::integral auto height) -> bool
     {
-        if (static_cast<decltype(width)>(screen_width) == width ||
+        if (static_cast<decltype(width)>(screen_width) == width &&
             static_cast<decltype(height)>(screen_height) == height)
             return false;
 
@@ -99,7 +99,7 @@ private:
 
 private:
     // constants
-    double sqrt3{std::sqrt(3)};
+    static constexpr double sqrt3 = 1.7320508075688772;
 
     // properties
     double screen_width{};

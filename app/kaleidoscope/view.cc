@@ -89,9 +89,6 @@ struct extended_data
 auto static constexpr title      = TEXT("Kaleidoscope");
 auto static constexpr class_name = TEXT("kaleidoscope window");
 
-auto static constexpr render_timer_id       = UINT_PTR{0x2333};
-auto static constexpr render_timer_interval = UINT{1000 / 60};
-
 auto static constexpr menu_item_exit            = UINT_PTR{1000};
 auto static constexpr menu_item_exit_text       = TEXT("Exit");
 auto static constexpr menu_item_no_capture      = UINT_PTR{1001};
@@ -99,7 +96,7 @@ auto static constexpr menu_item_no_capture_text = TEXT("Exclude from capture");
 auto static constexpr menu_item_top_most        = UINT_PTR{1002};
 auto static constexpr menu_item_top_most_text   = TEXT("Keep top most");
 
-auto static inline handle_liftime(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) -> extended_data *
+auto static inline handle_lifetime(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) -> extended_data *
 {
     using namespace aux;
     using user_data_pointer = extended_data *;
@@ -159,12 +156,6 @@ auto static inline handle_liftime(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lp
             ext::set_exclude_from_capture(hwnd, option) >> must::done;
             ext::switch_menu_item(menu, menu_item_no_capture, option);
         }
-
-        // Setup a timer to render
-        //
-        // Refer to
-        // https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-settimer
-        SetTimer(hwnd, render_timer_id, render_timer_interval, nullptr);
         return nullptr;
     }
     case WM_CLOSE:
@@ -178,7 +169,6 @@ auto static inline handle_liftime(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lp
         if (user_data && user_data->menu)
             DestroyMenu(user_data->menu);
 
-        KillTimer(hwnd, render_timer_id);
         PostQuitMessage(0);
         return nullptr;
     }
@@ -193,19 +183,10 @@ auto static inline handle_common_events(HWND hwnd, UINT umsg, WPARAM wparam, LPA
 {
     auto & state  = data.state;
     auto & render = *data.render.get();
+    (void)wparam;
 
     switch (umsg)
     {
-    case WM_TIMER:
-    {
-        switch (wparam)
-        {
-        case render_timer_id:
-            render.on_render();
-            return 0;
-        }
-        return std::nullopt;
-    }
     case WM_PAINT: // Paint
     {
         // Prepare a triangle
@@ -344,7 +325,6 @@ auto static inline handle_menu(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpara
     -> std::optional<LRESULT>
 {
     using namespace aux;
-    (void)hwnd;
     (void)lparam;
 
     if (umsg != WM_COMMAND)
@@ -381,7 +361,7 @@ auto static inline handle_menu(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lpara
 
 auto static CALLBACK window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) -> LRESULT
 {
-    auto user_data = handle_liftime(hwnd, umsg, wparam, lparam);
+    auto user_data = handle_lifetime(hwnd, umsg, wparam, lparam);
     if (user_data == nullptr)
         return DefWindowProc(hwnd, umsg, wparam, lparam);
 
@@ -400,6 +380,14 @@ auto static CALLBACK window_message_handler(HWND hwnd, UINT umsg, WPARAM wparam,
     return DefWindowProc(hwnd, umsg, wparam, lparam);
 }
 } // namespace app
+
+auto static inline to_wstring(std::string_view narrow) -> std::wstring
+{
+    auto len = MultiByteToWideChar(CP_UTF8, 0, narrow.data(), static_cast<int>(narrow.size()), nullptr, 0);
+    auto result = std::wstring(static_cast<size_t>(len), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, narrow.data(), static_cast<int>(narrow.size()), result.data(), len);
+    return result;
+}
 
 auto CALLBACK run(HINSTANCE instance, int show) -> void
 {
@@ -443,10 +431,27 @@ auto CALLBACK run(HINSTANCE instance, int show) -> void
     ShowWindow(window, show);
 
     // Run the message loop.
-    for (auto message = MSG{}; GetMessage(&message, nullptr, 0, 0) > 0;)
+    //
+    // Use PeekMessage instead of GetMessage + WM_TIMER for rendering.
+    // GetMessage blocks until a message arrives, and WM_TIMER has low priority
+    // (~15.6ms resolution), resulting in unreliable frame rates.
+    // PeekMessage is non-blocking; we render in the idle time, and the actual
+    // frame rate is controlled by swap chain VSync (Present interval = 1).
+    for (auto message = MSG{}; ;)
     {
-        TranslateMessage(&message);
-        DispatchMessage(&message);
+        if (PeekMessage(&message, nullptr, 0, 0, PM_REMOVE))
+        {
+            if (message.message == WM_QUIT)
+                break;
+            TranslateMessage(&message);
+            DispatchMessage(&message);
+        }
+        else
+        {
+            auto data = reinterpret_cast<app::extended_data *>(GetWindowLongPtr(window, GWLP_USERDATA));
+            if (data && data->render)
+                data->render->on_render();
+        }
     }
 
     // Cleaning
@@ -457,7 +462,7 @@ auto CALLBACK
 wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE /* prev_instance */, _In_ PWSTR /* cmd_line */, _In_ int show)
     -> int
 {
-    auto message = std::string{};
+    auto message = std::wstring{};
 
     try
     {
@@ -465,18 +470,18 @@ wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE /* prev_instance */, _In_ P
     }
     catch (std::system_error const & err)
     {
-        message = err.what();
+        message = to_wstring(err.what());
     }
     catch (_com_error const & err)
     {
-        message = err.ErrorMessage();
+        message = to_wstring(err.ErrorMessage());
     }
 
     if (!message.empty())
     {
         // Refer to
-        // https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-messagebox
-        MessageBox(nullptr, message.c_str(), TEXT("Oops!"), MB_OK | MB_ICONWARNING | MB_TOPMOST);
+        // https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-messageboxw
+        MessageBoxW(nullptr, message.c_str(), L"Oops!", MB_OK | MB_ICONWARNING | MB_TOPMOST);
     }
     return 0;
 }
