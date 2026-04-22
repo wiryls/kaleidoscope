@@ -8,8 +8,7 @@
 namespace model
 {
 
-template <std::integral I>
-using triangle_vertices = std::array<std::array<I, 2>, 3>;
+template <std::integral I> using triangle_vertices = std::array<std::array<I, 2>, 3>;
 
 template <std::integral I> class scoped_triangle
 {

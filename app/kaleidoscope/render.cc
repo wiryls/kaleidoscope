@@ -1,6 +1,5 @@
 #include <array>
 #include <concepts>
-#include <system_error>
 
 #define NOMINMAX
 #include <Windows.h>
@@ -215,7 +214,7 @@ auto static create_output_duplication(
     if (is_hdr)
     {
         auto output6 = ComPtr<IDXGIOutput6>();
-        auto hr = output.As(&output6);
+        auto hr      = output.As(&output6);
         if (FAILED(hr))
             return hr;
 
@@ -372,6 +371,11 @@ struct mirror::core
 
             // Create an IDXGIOutput1
             make::inferred_output(window, adapter, output) >> must::succeed;
+
+            // Read display rotation (physical vs logical orientation)
+            auto desc = DXGI_OUTPUT_DESC{};
+            output->GetDesc(&desc);
+            display_rotation = static_cast<float>(desc.Rotation) - 1.f; // DXGI_MODE_ROTATION is 1-based
 
             // Create an IDXGIOutputDuplication
             make::create_output_duplication(output, device11, is_hdr, output_duplication) >> must::succeed;
@@ -837,9 +841,8 @@ struct mirror::core
         render_target_view_descriptor_heap.Reset();
 
         // 3. Resize swapchain buffer
-        swap_chain->ResizeBuffers(
-            static_cast<UINT>(render_targets.size()), width, height, swap_chain_format, 0
-        ) >> must::succeed;
+        swap_chain->ResizeBuffers(static_cast<UINT>(render_targets.size()), width, height, swap_chain_format, 0) >>
+            must::succeed;
 
         // 4. Resize viewport and rect
         make::viewport_and_scissor_rect(swap_chain, viewport, scissor_rect) >> must::succeed;
@@ -865,11 +868,12 @@ struct mirror::core
         auto h                    = static_cast<float>(window_height);
 
         // Update constant buffer (normalization)
-        auto target   = triangle_constant_buffer{};
-        target.top_x  = source.top_x / w;
-        target.top_y  = source.top_y / h;
-        target.length = source.length / w;
-        target.height = source.length * half_sqrt3 / h;
+        auto target     = triangle_constant_buffer{};
+        target.top_x    = source.top_x / w;
+        target.top_y    = source.top_y / h;
+        target.length   = source.length / w;
+        target.height   = source.length * half_sqrt3 / h;
+        target.rotation = display_rotation;
 
         std::memcpy(constant_buffer_data, &target, sizeof(target));
     }
@@ -962,6 +966,7 @@ struct mirror::core
         float top_y;
         float length;
         float height;
+        float rotation; // 0=identity, 1=90°, 2=180°, 3=270° (DXGI_MODE_ROTATION - 1)
     };
 
     // Define the input layout for vertex shader
@@ -993,6 +998,9 @@ struct mirror::core
     bool        is_hdr{};
     DXGI_FORMAT swap_chain_format{};
     DXGI_FORMAT screenshot_format{};
+
+    // Display rotation (0=identity, 1=90°, 2=180°, 3=270°)
+    float display_rotation{};
 
     // Device and Command Queue
     wrl::ComPtr<ID3D12Device>                                    device{};
@@ -1047,9 +1055,9 @@ struct mirror::core
     HANDLE                       shared_texture_handle{};
 
     // Synchronization objects
-    HANDLE                           fence_event{};
-    std::array<UINT64, frame_count>  fence_values{};
-    wrl::ComPtr<ID3D12Fence>         fence{};
+    HANDLE                          fence_event{};
+    std::array<UINT64, frame_count> fence_values{};
+    wrl::ComPtr<ID3D12Fence>        fence{};
 };
 
 // Thanks to:

@@ -1,13 +1,14 @@
 SamplerState screenshot_sampler : register(s0);
-Texture2D screenshot : register(t0);
+Texture2D    screenshot : register(t0);
 
 // Note: about "group"
 // https://stackoverflow.com/a/61378340
 cbuffer triangle_group : register(b0)
 {
     float2 const origin;
-    float  const length;
-    float  const height;
+    float const  length;
+    float const  height;
+    float const  rotation; // 0=identity, 1=90°, 2=180°, 3=270°
 };
 
 float cross2(float2 a, float2 b)
@@ -28,7 +29,7 @@ float2 reflect(float2 source, float2 anchor, float2 mirror, float2 project)
     // Branchless equivalent of:
     //   if (abs(k) < 1e-6) return source;
     //   return (a * mirror - b * project) / k;
-    float w = step(1e-6, abs(k));
+    float w      = step(1e-6, abs(k));
     float safe_k = k * w + (1.0 - w);
 
     return lerp(source, (a * mirror - b * project) / safe_k, w);
@@ -37,8 +38,8 @@ float2 reflect(float2 source, float2 anchor, float2 mirror, float2 project)
 float2 redirect(float2 o)
 {
     // Bounding box of the repeat pattern
-    float2 const size = float2(length * 3.0, height * 2.0);
-    float2 const center = float2(origin.x + length, origin.y);
+    float2 const size     = float2(length * 3.0, height * 2.0);
+    float2 const center   = float2(origin.x + length, origin.y);
     float2 const top_left = float2(origin.x - length * 0.5, origin.y - height);
 
     // Calculate (x, y) in bounding box
@@ -63,21 +64,39 @@ float2 redirect(float2 o)
     return o;
 }
 
-float4 main(float2 o : TEXCOORD) : SV_TARGET
+float2 rotate_uv(float2 uv, float rot)
+{
+    // Desktop Duplication captures in physical orientation.
+    // Rotate UV to match logical orientation:
+    //   rot=1 (90° CW):  (u,v) -> (1-v, u)
+    //   rot=2 (180°):    (u,v) -> (1-u, 1-v)
+    //   rot=3 (270° CW): (u,v) -> (v, 1-u)
+    float2 r0 = uv;
+    float2 r1 = float2(uv.y, 1.0 - uv.x);
+    float2 r2 = float2(1.0 - uv.x, 1.0 - uv.y);
+    float2 r3 = float2(1.0 - uv.y, uv.x);
+
+    float s1 = step(0.5, rot) * step(rot, 1.5);
+    float s2 = step(1.5, rot) * step(rot, 2.5);
+    float s3 = step(2.5, rot);
+
+    return r0 * (1.0 - s1 - s2 - s3) + r1 * s1 + r2 * s2 + r3 * s3;
+}
+
+float4 main(float2 o : TEXCOORD)
+    : SV_TARGET
 {
     float const half_length = length * 0.5;
 
-    float2 const left_to_top = float2(half_length, -height);
+    float2 const left_to_top  = float2(half_length, -height);
     float2 const right_to_top = float2(-half_length, -height);
 
-    float2 const top = origin;
-    float2 const left = top - left_to_top;
+    float2 const top   = origin;
+    float2 const left  = top - left_to_top;
     float2 const right = top - right_to_top;
 
     // Ignore if o is inside triangle
-    if (cross2(top - left, o - left) >= 0 &&
-        cross2(right - top, o - top) >= 0 &&
-        cross2(left - right, o - right) >= 0)
+    if (cross2(top - left, o - left) >= 0 && cross2(right - top, o - top) >= 0 && cross2(left - right, o - right) >= 0)
     {
         return float4(0, 0, 0, 0);
     }
@@ -102,5 +121,5 @@ float4 main(float2 o : TEXCOORD) : SV_TARGET
         o = reflect(o, right, right_to_top, 0.5 * right_to_top - left_to_top);
     }
 
-    return screenshot.Sample(screenshot_sampler, o);
+    return screenshot.Sample(screenshot_sampler, rotate_uv(o, rotation));
 }

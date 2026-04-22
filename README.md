@@ -2,24 +2,20 @@
 
 # Kaleidoscope
 
-A **kaleidoscope** style screen filter on Windows 10/11!
+A **kaleidoscope** style screen filter for Windows 10/11.
 
-This program uses an equilateral triangle box to pick patterns, and fill the entire windows desktop with the generated graphics.
+The program captures the desktop using an equilateral triangle selection box and fills the entire screen with kaleidoscope-style reflected graphics.
 
 ## Usage
 
-Open the `kaleidoscope.exe`, program will automatically fill the screen with a small triangle pattern in the middle of your desktop. Then we can:
+- **Drag** the triangle to move the selection box.
+- **Scroll** the mouse wheel to resize the selection box.
+- **Right-click** to open the context menu.
+- **Press ESC** or use the context menu to exit.
 
-- Drag with the mouse to move the selection box.
-- Rotate your mouse wheel to resize the selection box.
-- Press ESC or use the right-click menu to exit.
+> **Note:** Enable `Exclude from capture` for smoother rendering. When enabled, the window will not appear in screenshots — disable it first if you need to capture the kaleidoscope.
 
-Notes:
-
-- If you want to take a screenshot, please **DISABLE** `Exclude from capture` in the right-click menu.
-- By enabling `Exclude from capture`, graphics will be smoother. But it will NOT be captured by other screenshot programs.
-
-Moving the selection box around, we can get even more:
+Moving the selection box around:
 
 <https://user-images.githubusercontent.com/7984500/217632201-b8e297cf-3540-4726-b808-772ee35adf3d.mp4>
 
@@ -27,20 +23,18 @@ Moving the selection box around, we can get even more:
 
 ### Requirements
 
-- Windows (version >= 10) with DirectX 12
-- Visual Studio (version >= 2022) with the C++ desktop development tools.
+- Windows 10+ with DirectX 12
+- Visual Studio 2022+ with C++ desktop development workload
 
-### Compile
+### Steps
 
-1. Clone this project.
-2. Open the root folder with Visual Studio 2026.
-3. Wait until CMake configuration finished. (During this step, a third-party library will be cloned)
-4. Add `x64-Release` to CMakeSettings and select it (Optional).
-5. Compile it with Visual Studio.
-6. The compiled program may be output to `out\build\x64-Release\app\kaleidoscope`. (It depends on your CMake configuration)
+1. Clone the project.
+2. Open the root folder with Visual Studio.
+3. Wait for CMake configuration to finish.
+4. Add `x64-Release` to CMake Settings and select it (optional).
+5. Build the project.
+6. The output is in `out\build\x64-Release\app\kaleidoscope` (depends on your CMake configuration).
 
-## Miscellaneous
+## Notes
 
-It may be more appropriate to use DirectX 11, as [Desktop Duplication API](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/desktop-dup-api) doesn't support DirectX 12 (current implementation has one unnecessary copy).
-
-Current implementation may not support some situations such as unplugging the display, screen flipping, etc.
+Using DirectX 11 may be more appropriate, as the [Desktop Duplication API](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/desktop-dup-api) doesn't support DirectX 12 natively (the current implementation requires an extra copy).
